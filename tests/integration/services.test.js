@@ -1,18 +1,16 @@
 const request = require('supertest');
-const app = require('../../src/app');
+const app = require('../../app');
 const mongoose = require('mongoose');
 
 describe('Services CRUD', () => {
   let token;
   beforeAll(async () => {
     // register admin
-    await request(app)
-      .post('/api/v1/auth/register')
-      .send({
-        email: 'svcadmin@example.com',
-        password: 'Admin1234',
-        role: 'admin',
-      });
+    await request(app).post('/api/v1/auth/register').send({
+      email: 'svcadmin@example.com',
+      password: 'Admin1234',
+      role: 'admin',
+    });
     const res = await request(app)
       .post('/api/v1/auth/login')
       .send({ email: 'svcadmin@example.com', password: 'Admin1234' });
