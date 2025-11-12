@@ -1,10 +1,11 @@
 {
   "name": "marketing-planner",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
+    "vercel-build": "echo 'No build step needed'",
     "test": "jest --runInBand",
     "seed": "node src/seed.js"
   },
