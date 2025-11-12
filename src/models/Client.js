@@ -32,6 +32,7 @@ const ClientSchema = new mongoose.Schema(
       website: String,
     },
     deletedAt: { type: Date, default: null },
+    deleted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
