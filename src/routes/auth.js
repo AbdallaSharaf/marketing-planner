@@ -199,7 +199,7 @@ router.get('/me', async (req, res, next) => {
     const token = auth.split(' ')[1];
     const payload = jwt.verify(
       token,
-      process.env.JWT_SECRET || 'change-me-min-32-chars'
+      process.env.JWT_SECRET
     );
     const user = await User.findById(payload.userId).select('-password');
     if (!user)
