@@ -13,6 +13,7 @@ const CompetitorSchema = new mongoose.Schema(
     swot_weaknesses: { type: [String], default: [] },
     swot_opportunities: { type: [String], default: [] },
     swot_threats: { type: [String], default: [] },
+    deleted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

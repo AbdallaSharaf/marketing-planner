@@ -17,6 +17,7 @@ const SegmentSchema = new mongoose.Schema(
     },
     interests: { type: [String], default: [] },
     incomeLevel: { type: String, enum: ['low', 'middle', 'high', 'varied'] },
+    deleted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

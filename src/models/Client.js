@@ -31,10 +31,27 @@ const ClientSchema = new mongoose.Schema(
       businessEmail: String,
       website: String,
     },
-    deletedAt: { type: Date, default: null },
     deleted: { type: Boolean, default: false },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+
+  }
 );
+
+// Add virtual for competitors
+ClientSchema.virtual('competitors', {
+  ref: 'Competitor',
+  localField: '_id',
+  foreignField: 'clientId'
+});
+
+ClientSchema.virtual('segments', {
+  ref: 'Segment',
+  localField: '_id',
+  foreignField: 'clientId'
+});
 
 module.exports = mongoose.model('Client', ClientSchema);
