@@ -8,6 +8,15 @@ const schema = Joi.object({
   swot_weaknesses: Joi.array().items(Joi.string()).default([]),
   swot_opportunities: Joi.array().items(Joi.string()).default([]),
   swot_threats: Joi.array().items(Joi.string()).default([]),
+  socialLinks: Joi.array()
+    .items(
+      Joi.object({
+        platform: Joi.string()
+          .required(),
+        url: Joi.string().uri().required(),
+      })
+    )
+    .default([]),
 });
 
 exports.list = async (req, res, next) => {
