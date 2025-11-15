@@ -16,8 +16,7 @@ module.exports = async function connectDB() {
       minPoolSize: parseInt(process.env.DATABASE_POOL_MIN || '2', 10),
       serverSelectionTimeoutMS: 30000, // Increase to 30 seconds
       socketTimeoutMS: 45000, // Increase socket timeout
-      bufferCommands: false, // Disable mongoose buffering
-      bufferMaxEntries: 0, // Disable mongoose buffering
+      // Remove bufferCommands: false - let mongoose buffer commands
     };
 
     console.log('🔄 Connecting to MongoDB...');
@@ -26,6 +25,6 @@ module.exports = async function connectDB() {
     return conn;
   } catch (error) {
     console.error('❌ MongoDB connection error:', error);
-    throw error; // Re-throw to handle in the calling code
+    throw error;
   }
 };
