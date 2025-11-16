@@ -27,7 +27,6 @@ const QuotationSchema = new mongoose.Schema(
       ref: 'Client',
       index: true,
     },
-    clientName: { type: String },
     servicesPricing: { type: [ServicePricingSchema], default: [] },
     customServices: { type: [CustomServiceSchema], default: [] },
     subtotal: { type: Number, default: 0 },
@@ -53,10 +52,17 @@ const QuotationSchema = new mongoose.Schema(
       ref: 'User',
       index: true,
     },
-    deletedAt: { type: Date, default: null },
+    deleted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
+
+QuotationSchema.virtual('services', {
+  ref: 'Service',
+  localField: '_id',
+  foreignField: 'clientId',
+});
+
 
 QuotationSchema.index({ clientId: 1, status: 1 });
 

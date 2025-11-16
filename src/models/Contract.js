@@ -8,16 +8,12 @@ const ContractSchema = new mongoose.Schema(
       ref: 'Client',
       index: true,
     },
-    packageId: { type: mongoose.Schema.Types.ObjectId, ref: 'Package' },
-    campaignPlanId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'CampaignPlan',
-    },
+    value: { type: Number, default: 0 },
     quotationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Quotation' },
-    contractTerms: { type: String },
+    contractTerms: { type: [String], default: [] },
     startDate: { type: Date },
     endDate: { type: Date },
-    value: { type: Number, min: 0 },
+    contractImage: { type: String },
     status: {
       type: String,
       enum: ['draft', 'active', 'completed', 'cancelled', 'renewed'],
@@ -29,7 +25,8 @@ const ContractSchema = new mongoose.Schema(
       ref: 'User',
       index: true,
     },
-    deletedAt: { type: Date, default: null },
+    deleted: { type: Boolean, default: false },
+    note: { type: String },
   },
   { timestamps: true }
 );

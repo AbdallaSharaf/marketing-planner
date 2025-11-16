@@ -10,6 +10,7 @@ exports.list = async (req, res, next) => {
     const skip = (page - 1) * limit;
     const total = await AuditLog.countDocuments(filter);
     const logs = await AuditLog.find(filter)
+      .populate('userId', 'fullName role')
       .skip(skip)
       .limit(limit)
       .sort({ timestamp: -1 });

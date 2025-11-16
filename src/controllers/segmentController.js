@@ -18,7 +18,7 @@ exports.list = async (req, res, next) => {
       clientId: req.params.clientId,
       deleted: false,
     });
-    res.json({ segments });
+    res.json({ data: segments });
   } catch (err) {
     next(err);
   }
@@ -39,7 +39,7 @@ exports.create = async (req, res, next) => {
     });
 
     await segment.save();
-    res.status(201).json({ segment });
+    res.status(201).json({ data: segment });
   } catch (err) {
     next(err);
   }
@@ -67,7 +67,7 @@ exports.update = async (req, res, next) => {
         error: { code: 'NOT_FOUND', message: 'Segment not found' },
       });
 
-    res.json({ segment });
+    res.json({ data: segment });
   } catch (err) {
     next(err);
   }

@@ -31,13 +31,31 @@ const ClientSchema = new mongoose.Schema(
       businessEmail: String,
       website: String,
     },
+    socialLinks: [
+      {
+        platform: {
+          type: String,
+          required: true,
+        },
+        url: {
+          type: String,
+          required: true,
+        },
+      },
+    ],
+    swot:
+      {
+        strengths: { type: [String], default: [] },
+        weaknesses: { type: [String], default: [] },
+        opportunities: { type: [String], default: [] },
+        threats: { type: [String], default: [] },
+      },
     deleted: { type: Boolean, default: false },
   },
   {
     timestamps: true,
     toJSON: { virtuals: true },
-    toObject: { virtuals: true }
-
+    toObject: { virtuals: true },
   }
 );
 
@@ -50,6 +68,24 @@ ClientSchema.virtual('competitors', {
 
 ClientSchema.virtual('segments', {
   ref: 'Segment',
+  localField: '_id',
+  foreignField: 'clientId'
+});
+
+ClientSchema.virtual('branches', {
+  ref: 'Branch',
+  localField: '_id',
+  foreignField: 'clientId'
+});
+
+ClientSchema.virtual('contracts', {
+  ref: 'Contract',
+  localField: '_id',
+  foreignField: 'clientId'
+});
+
+ClientSchema.virtual('quotations', {
+  ref: 'Quotation',
   localField: '_id',
   foreignField: 'clientId'
 });

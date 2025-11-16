@@ -25,7 +25,7 @@ exports.list = async (req, res, next) => {
       clientId: req.params.clientId,
       deleted: false,
     });
-    res.json({ competitors: items });
+    res.json({ data: items });
   } catch (err) {
     next(err);
   }
@@ -46,7 +46,7 @@ exports.create = async (req, res, next) => {
     });
 
     await competitor.save();
-    res.status(201).json({ competitor });
+    res.status(201).json({ data: competitor });
   } catch (err) {
     next(err);
   }
@@ -74,7 +74,7 @@ exports.update = async (req, res, next) => {
         error: { code: 'NOT_FOUND', message: 'Competitor not found' },
       });
 
-    res.json({ competitor });
+    res.json({ data: competitor });
   } catch (err) {
     next(err);
   }

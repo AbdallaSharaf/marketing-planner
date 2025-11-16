@@ -15,8 +15,6 @@ const reportsRoutes = require('./routes/reports');
 const branchesRoutes = require('./routes/branches');
 const segmentsRoutes = require('./routes/segments');
 const competitorsRoutes = require('./routes/competitors');
-const socialLinksRoutes = require('./routes/socialLinks');
-const swotsRoutes = require('./routes/swots');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
 const usersRoutes = require('./routes/users');
@@ -52,8 +50,6 @@ app.use(`/api/${apiVersion}/reports`, reportsRoutes);
 app.use(`/api/${apiVersion}/clients/:clientId/branches`, branchesRoutes);
 app.use(`/api/${apiVersion}/clients/:clientId/segments`, segmentsRoutes);
 app.use(`/api/${apiVersion}/clients/:clientId/competitors`, competitorsRoutes);
-app.use(`/api/${apiVersion}/clients/:clientId/social-links`, socialLinksRoutes);
-app.use(`/api/${apiVersion}/clients/:clientId/swot`, swotsRoutes);
 
 app.use(`/api/${apiVersion}/users`, usersRoutes);
 app.use(`/api/${apiVersion}/audit`, auditRoutes);

@@ -25,6 +25,20 @@ const createSchema = Joi.object({
     businessEmail: Joi.string().email().allow('', null),
     website: Joi.string().uri().allow('', null),
   }).optional(),
+  swot: Joi.object({
+    strengths: Joi.array().items(Joi.string()).default([]),
+    weaknesses: Joi.array().items(Joi.string()).default([]),
+    opportunities: Joi.array().items(Joi.string()).default([]),
+    threats: Joi.array().items(Joi.string()).default([]),
+  }).optional(),
+  socialLinks: Joi.array()
+    .items(
+      Joi.object({
+        platform: Joi.string().required(),
+        url: Joi.string().uri().required(),
+      })
+    )
+    .default([]),
   status: Joi.string().valid('active', 'inactive', 'pending').default('active'),
 });
 
@@ -227,12 +241,27 @@ exports.getById = async (req, res, next) => {
         match: { deleted: false },
         options: { sort: { createdAt: -1 } },
       })
-
+      .populate({
+        path: 'branches',
+        match: { deleted: false },
+        options: { sort: { createdAt: -1 } },
+      })
+      .populate({
+        path: 'contracts',
+        match: { deleted: false },
+        options: { sort: { createdAt: -1 } },
+      })
+      .populate({
+        path: 'quotations',
+        match: { deleted: false },
+        options: { sort: { createdAt: -1 } },
+      });
+    
     if (!client || client.deleted)
       return res
         .status(404)
         .json({ error: { code: 'NOT_FOUND', message: 'Client not found' } });
-    res.json({ client });
+    res.json({ data: client });
   } catch (err) {
     next(err);
   }

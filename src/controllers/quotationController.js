@@ -7,7 +7,6 @@ const { logAudit } = require('../utils/audit');
 
 const createSchema = Joi.object({
   clientId: Joi.string().allow(null),
-  clientName: Joi.string().allow('', null),
   serviceIds: Joi.array().items(Joi.string()),
   servicesPricing: Joi.object().default({}),
   customServices: Joi.array().items(
@@ -31,7 +30,7 @@ exports.list = async (req, res, next) => {
     const page = parseInt(req.query.page || '1', 10);
     const limit = Math.min(100, parseInt(req.query.limit || '20', 10));
     const skip = (page - 1) * limit;
-    const filter = { deletedAt: null };
+    const filter = { deleted: false };
     if (req.query.clientId) filter.clientId = req.query.clientId;
     if (req.query.status) filter.status = req.query.status;
     const total = await Quotation.countDocuments(filter);
@@ -48,26 +47,61 @@ exports.list = async (req, res, next) => {
   }
 };
 
+
+
 exports.create = async (req, res, next) => {
   try {
     const { error, value } = createSchema.validate(req.body);
     if (error)
-      return res
-        .status(400)
-        .json({ error: { code: 'VALIDATION_ERROR', message: error.message } });
-    // prepare servicesPricing array
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: error.message },
+      });
+
+    // Validate client exists if provided
+    if (value.clientId) {
+      const Client = require('../models/Client');
+      const clientExists = await Client.findOne({
+        _id: value.clientId,
+        deleted: false,
+      });
+
+      if (!clientExists) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_CLIENT',
+            message: 'Client not found or has been deleted',
+          },
+        });
+      }
+    }
+
+    // Prepare servicesPricing array with validation
     const servicesPricingArr = [];
     if (value.serviceIds && value.serviceIds.length) {
       for (const id of value.serviceIds) {
-        const s = await Service.findById(id);
-        if (s)
-          servicesPricingArr.push({
-            service: s._id,
-            customPrice:
-              (value.servicesPricing && value.servicesPricing[id]) || s.price,
+        const service = await Service.findOne({
+          _id: id,
+          deleted: false,
+        });
+
+        if (!service) {
+          return res.status(400).json({
+            error: {
+              code: 'INVALID_SERVICE',
+              message: `Service with ID ${id} not found or has been deleted`,
+            },
           });
+        }
+
+        servicesPricingArr.push({
+          service: service._id,
+          customPrice:
+            (value.servicesPricing && value.servicesPricing[id]) ||
+            service.price,
+        });
       }
     }
+
     const customServices = value.customServices || [];
     const totals = calculateQuotationTotal(
       servicesPricingArr.map((sp) => ({ price: sp.customPrice })),
@@ -75,10 +109,10 @@ exports.create = async (req, res, next) => {
       value.discountValue,
       value.discountType
     );
+
     const doc = new Quotation({
       quotationNumber: quotationNumber(),
       clientId: value.clientId,
-      clientName: value.clientName,
       servicesPricing: servicesPricingArr,
       customServices,
       subtotal: totals.subtotal,
@@ -88,8 +122,16 @@ exports.create = async (req, res, next) => {
       note: value.note,
       validUntil: value.validUntil,
       createdBy: req.user._id,
+      deleted: false,
     });
+
     await doc.save();
+
+    // Populate after save for response
+    await doc.populate('servicesPricing.service');
+    await doc.populate('clientId', 'business.name personal.fullName');
+    await doc.populate('createdBy', 'fullName');
+    await doc.populate('services', { match: { deleted: false } }, { sort: { createdAt: -1 } });
     await logAudit({
       userId: req.user._id,
       action: 'create',
@@ -99,22 +141,38 @@ exports.create = async (req, res, next) => {
       ipAddress: req.ip,
       userAgent: req.get('User-Agent'),
     });
-    res.status(201).json({ quotation: doc });
+
+    res.status(201).json({ data: doc });
   } catch (err) {
+    // Handle invalid ObjectId format
+    if (err.name === 'CastError') {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_ID_FORMAT',
+          message: 'Invalid ID format provided',
+        },
+      });
+    }
     next(err);
   }
 };
 
 exports.get = async (req, res, next) => {
   try {
-    const q = await Quotation.findById(req.params.id).populate(
-      'servicesPricing.service'
-    );
-    if (!q || q.deletedAt)
+    const q = await Quotation.findById(req.params.id)
+      .populate('servicesPricing.service')
+      .populate('clientId', 'business.name personal.fullName')
+      .populate('createdBy', 'fullName')
+      .populate({
+        path: 'services',
+        match: { deleted: false },
+        options: { sort: { createdAt: -1 } },
+      });
+    if (!q || q.deleted)
       return res
         .status(404)
         .json({ error: { code: 'NOT_FOUND', message: 'Quotation not found' } });
-    res.json({ quotation: q });
+    res.json({ data: q });
   } catch (err) {
     next(err);
   }
@@ -125,7 +183,15 @@ exports.update = async (req, res, next) => {
     const updates = req.body;
     const q = await Quotation.findByIdAndUpdate(req.params.id, updates, {
       new: true,
-    });
+    })
+      .populate('servicesPricing.service')
+      .populate('clientId', 'business.name personal.fullName')
+      .populate('createdBy', 'fullName')
+      .populate({
+        path: 'services',
+        match: { deleted: false },
+        options: { sort: { createdAt: -1 } },
+      });
     if (!q)
       return res
         .status(404)
@@ -139,7 +205,7 @@ exports.update = async (req, res, next) => {
       ipAddress: req.ip,
       userAgent: req.get('User-Agent'),
     });
-    res.json({ quotation: q });
+    res.json({ data: q });
   } catch (err) {
     next(err);
   }
@@ -148,7 +214,7 @@ exports.update = async (req, res, next) => {
 exports.remove = async (req, res, next) => {
   try {
     const q = await Quotation.findByIdAndUpdate(req.params.id, {
-      deletedAt: new Date(),
+      deleted: true,
     });
     if (!q)
       return res
@@ -164,62 +230,6 @@ exports.remove = async (req, res, next) => {
       userAgent: req.get('User-Agent'),
     });
     res.status(204).send();
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.send = async (req, res, next) => {
-  try {
-    // placeholder: would integrate email service
-    const q = await Quotation.findById(req.params.id);
-    if (!q)
-      return res
-        .status(404)
-        .json({ error: { code: 'NOT_FOUND', message: 'Quotation not found' } });
-    q.status = 'sent';
-    q.sentAt = new Date();
-    await q.save();
-    res.json({ message: 'Quotation sent (placeholder)', quotation: q });
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.approve = async (req, res, next) => {
-  try {
-    const q = await Quotation.findByIdAndUpdate(
-      req.params.id,
-      { status: 'approved', approvedAt: new Date() },
-      { new: true }
-    );
-    if (!q)
-      return res
-        .status(404)
-        .json({ error: { code: 'NOT_FOUND', message: 'Quotation not found' } });
-    res.json({ quotation: q });
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.reject = async (req, res, next) => {
-  try {
-    const reason = req.body.reason || '';
-    const q = await Quotation.findByIdAndUpdate(
-      req.params.id,
-      {
-        status: 'rejected',
-        rejectedAt: new Date(),
-        note: ((q) => q || '')(reason),
-      },
-      { new: true }
-    );
-    if (!q)
-      return res
-        .status(404)
-        .json({ error: { code: 'NOT_FOUND', message: 'Quotation not found' } });
-    res.json({ quotation: q });
   } catch (err) {
     next(err);
   }
@@ -243,32 +253,50 @@ exports.pdf = async (req, res, next) => {
 exports.convertToContract = async (req, res, next) => {
   try {
     const q = await Quotation.findById(req.params.id);
-    if (!q)
-      return res
-        .status(404)
-        .json({ error: { code: 'NOT_FOUND', message: 'Quotation not found' } });
-    // create a contract using quotation totals and provided body
+    if (!q || q.deleted)
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Quotation not found' },
+      });
+
+    // Validate client exists before creating contract
+    if (q.clientId) {
+      const Client = require('../models/Client');
+      const clientExists = await Client.findOne({
+        _id: q.clientId,
+        deleted: false,
+      });
+
+      if (!clientExists) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_CLIENT',
+            message:
+              'Client associated with this quotation not found or has been deleted',
+          },
+        });
+      }
+    }
+
     const { startDate, endDate, contractTerms } = req.body;
     const Contract = require('../models/Contract');
     const { contractNumber } = require('../utils/identifier');
+
     if (!startDate || !endDate)
-      return res
-        .status(400)
-        .json({
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'startDate and endDate required',
-          },
-        });
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'startDate and endDate required',
+        },
+      });
+
     if (new Date(endDate) <= new Date(startDate))
-      return res
-        .status(400)
-        .json({
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'endDate must be after startDate',
-          },
-        });
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'endDate must be after startDate',
+        },
+      });
+
     const c = new Contract({
       contractNumber: contractNumber(),
       clientId: q.clientId,
@@ -278,12 +306,37 @@ exports.convertToContract = async (req, res, next) => {
       endDate,
       value: q.total,
       createdBy: req.user._id,
+      deleted: false,
     });
+
     await c.save();
+    await c.populate('clientId', 'business.name personal.fullName');
+    await c.populate('createdBy', 'fullName');
+    await c.populate('quotationId');
+    await logAudit({
+      userId: req.user._id,
+      action: 'convert_to_contract',
+      entityType: 'Quotation',
+      entityId: q._id,
+      changes: null,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+    });
+    
+    // Update quotation status
     q.status = 'approved';
     await q.save();
-    res.json({ contract: c });
+
+    res.json({ data: c });
   } catch (err) {
+    if (err.name === 'CastError') {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_ID_FORMAT',
+          message: 'Invalid ID format',
+        },
+      });
+    }
     next(err);
   }
 };
