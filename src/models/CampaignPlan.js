@@ -1,41 +1,47 @@
 const mongoose = require('mongoose');
 
-const ObjSchema = new mongoose.Schema(
-  { id: String, en: String, ar: String },
-  { _id: false }
-);
-
 const CampaignPlanSchema = new mongoose.Schema(
   {
+    planId: {
+      type: String,
+      unique: true,
+      index: true,
+    },
     clientId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Client',
+      required: true,
       index: true,
     },
-    planName: { type: String },
-    objectives: { type: [ObjSchema], default: [] },
-    strategies: { type: [ObjSchema], default: [] },
-    servicesPricing: { type: Object, default: {} },
-    budget: { type: Number, default: 0 },
-    timeline: { type: String },
-    startDate: { type: Date },
-    duration: { type: String },
-    finalStrategy: { type: String },
-    status: {
-      type: String,
-      enum: ['draft', 'active', 'completed', 'cancelled'],
-      default: 'draft',
+    description: { type: String },
+    objectives: [
+      {
+        name: { type: String, required: true },
+        description: { type: String },
+      },
+    ],
+    strategy: {
+      budget: { type: Number, min: 0 },
+      timeline: { type: String },
+      description: { type: String },
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      index: true,
+      required: true,
     },
-    deletedAt: { type: Date, default: null },
+    deleted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
 
-CampaignPlanSchema.index({ clientId: 1, status: 1 });
+// Auto-generate planId before saving
+CampaignPlanSchema.pre('save', async function (next) {
+  if (this.isNew) {
+    const count = await mongoose.model('CampaignPlan').countDocuments();
+    this.planId = `PLAN-${String(count + 1).padStart(6, '0')}`;
+  }
+  next();
+});
 
 module.exports = mongoose.model('CampaignPlan', CampaignPlanSchema);

@@ -276,6 +276,15 @@ exports.getById = async (req, res, next) => {
             },
           },
         },
+      })
+      .populate({
+        path: 'campaigns',
+        match: { deleted: false },
+        options: { sort: { createdAt: -1 } },
+        populate: {
+          path: 'createdBy',
+          select: 'fullName',
+        },
       });
 
     if (!client || client.deleted)

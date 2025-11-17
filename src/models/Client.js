@@ -90,4 +90,10 @@ ClientSchema.virtual('quotations', {
   foreignField: 'clientId'
 });
 
+ClientSchema.virtual('campaigns', {
+  ref: 'CampaignPlan',
+  localField: '_id',
+  foreignField: 'clientId'
+});
+
 module.exports = mongoose.model('Client', ClientSchema);

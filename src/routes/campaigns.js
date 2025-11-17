@@ -10,11 +10,5 @@ router.post('/', auth, roles(['admin', 'manager']), controller.create);
 router.get('/:id', auth, controller.get);
 router.put('/:id', auth, roles(['admin', 'manager']), controller.update);
 router.delete('/:id', auth, roles(['admin']), controller.remove);
-router.post(
-  '/:id/generate-strategy',
-  auth,
-  roles(['admin', 'manager']),
-  controller.generateStrategy
-);
 
 module.exports = router;
