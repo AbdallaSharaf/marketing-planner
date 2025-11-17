@@ -14,6 +14,7 @@ const contractsRoutes = require('./routes/contracts');
 const reportsRoutes = require('./routes/reports');
 const branchesRoutes = require('./routes/branches');
 const segmentsRoutes = require('./routes/segments');
+const itemsRoutes = require('./routes/items');
 const competitorsRoutes = require('./routes/competitors');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
@@ -46,6 +47,7 @@ app.use(`/api/${apiVersion}/campaigns`, campaignsRoutes);
 app.use(`/api/${apiVersion}/quotations`, quotationsRoutes);
 app.use(`/api/${apiVersion}/contracts`, contractsRoutes);
 app.use(`/api/${apiVersion}/reports`, reportsRoutes);
+app.use(`/api/${apiVersion}/items`, itemsRoutes);
 // nested client routes
 app.use(`/api/${apiVersion}/clients/:clientId/branches`, branchesRoutes);
 app.use(`/api/${apiVersion}/clients/:clientId/segments`, segmentsRoutes);

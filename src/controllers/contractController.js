@@ -2,12 +2,7 @@ const Contract = require('../models/Contract');
 const Joi = require('joi');
 const { logAudit } = require('../utils/audit');
 const Client = require('../models/Client'); // Import Client model
-
-// Auto-generate contract number helper
-const generateContractNumber = async () => {
-  const count = await Contract.countDocuments();
-  return `CONTRACT-${String(count + 1).padStart(6, '0')}`;
-};
+const { contractNumber } = require('../utils/identifier');
 
 const createSchema = Joi.object({
   clientId: Joi.string().required(),
@@ -149,7 +144,18 @@ exports.list = async (req, res, next) => {
     const total = await Contract.countDocuments(filter);
     const contracts = await Contract.find(filter)
       .populate('clientId', 'business.name personal.fullName') // Selective population
-      .populate('quotationId') // Selective population
+      .populate({
+        path: 'quotationId',
+        populate: {
+          path: 'services',
+          populate: {
+            path: 'packages',
+            populate: {
+              path: 'items'
+            },
+          }
+        },
+      })
       .populate('createdBy', 'fullName email')
       .skip(skip)
       .limit(limit)
@@ -235,12 +241,9 @@ exports.create = async (req, res, next) => {
         },
       });
 
-    // Generate contract number
-    const contractNumber = await generateContractNumber();
-
     const contract = new Contract({
       ...value,
-      contractNumber,
+      contractNumber: contractNumber(),
       value: contractValue, // Manual value takes priority
       createdBy: req.user._id,
       deleted: false,
@@ -253,7 +256,18 @@ exports.create = async (req, res, next) => {
       'clientId',
       'business.name personal.fullName personal.email'
     );
-    await contract.populate('quotationId');
+    await contract.populate({
+      path: 'quotationId',
+      populate: {
+        path: 'services',
+        populate: {
+          path: 'packages',
+          populate: {
+            path: 'items',
+          },
+        },
+      },
+    });
 
     await logAudit({
       userId: req.user._id,
@@ -289,7 +303,18 @@ exports.get = async (req, res, next) => {
   try {
     const contract = await Contract.findById(req.params.id)
       .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
-      .populate('quotationId')
+      .populate({
+        path: 'quotationId',
+        populate: {
+          path: 'services',
+          populate: {
+            path: 'packages',
+            populate: {
+              path: 'items',
+            },
+          },
+        },
+      })
       .populate('createdBy', 'fullName email');
 
     if (!contract || contract.deleted)
@@ -361,8 +386,18 @@ exports.update = async (req, res, next) => {
       new: true,
     })
       .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
-      .populate('quotationId');
-
+      .populate({
+        path: 'quotationId',
+        populate: {
+          path: 'services',
+          populate: {
+            path: 'packages',
+            populate: {
+              path: 'items',
+            },
+          },
+        },
+      });
     if (!contract)
       return res.status(404).json({
         error: { code: 'NOT_FOUND', message: 'Contract not found' },
@@ -427,8 +462,18 @@ exports.sign = async (req, res, next) => {
       { new: true }
     )
       .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
-      .populate('quotationId');
-
+      .populate({
+        path: 'quotationId',
+        populate: {
+          path: 'services',
+          populate: {
+            path: 'packages',
+            populate: {
+              path: 'items',
+            },
+          },
+        },
+      });
     if (!contract)
       return res.status(404).json({
         error: { code: 'NOT_FOUND', message: 'Contract not found' },
@@ -448,8 +493,18 @@ exports.activate = async (req, res, next) => {
       { new: true }
     )
       .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
-      .populate('quotationId');
-
+      .populate({
+        path: 'quotationId',
+        populate: {
+          path: 'services',
+          populate: {
+            path: 'packages',
+            populate: {
+              path: 'items',
+            },
+          },
+        },
+      });
     if (!contract)
       return res.status(404).json({
         error: { code: 'NOT_FOUND', message: 'Contract not found' },
@@ -469,8 +524,18 @@ exports.complete = async (req, res, next) => {
       { new: true }
     )
       .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
-      .populate('quotationId');
-
+      .populate({
+        path: 'quotationId',
+        populate: {
+          path: 'services',
+          populate: {
+            path: 'packages',
+            populate: {
+              path: 'items',
+            },
+          },
+        },
+      });
     if (!contract)
       return res.status(404).json({
         error: { code: 'NOT_FOUND', message: 'Contract not found' },
@@ -491,8 +556,18 @@ exports.cancel = async (req, res, next) => {
       { new: true }
     )
       .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
-      .populate('quotationId');
-
+      .populate({
+        path: 'quotationId',
+        populate: {
+          path: 'services',
+          populate: {
+            path: 'packages',
+            populate: {
+              path: 'items',
+            },
+          },
+        },
+      });
     if (!contract)
       return res.status(404).json({
         error: { code: 'NOT_FOUND', message: 'Contract not found' },
@@ -533,8 +608,18 @@ exports.renew = async (req, res, next) => {
       { new: true }
     )
       .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
-      .populate('quotationId');
-
+      .populate({
+        path: 'quotationId',
+        populate: {
+          path: 'services',
+          populate: {
+            path: 'packages',
+            populate: {
+              path: 'items',
+            },
+          },
+        },
+      });
     if (!contract)
       return res.status(404).json({
         error: { code: 'NOT_FOUND', message: 'Contract not found' },

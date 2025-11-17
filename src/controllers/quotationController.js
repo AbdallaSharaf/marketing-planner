@@ -7,8 +7,7 @@ const { logAudit } = require('../utils/audit');
 
 const createSchema = Joi.object({
   clientId: Joi.string().allow(null),
-  serviceIds: Joi.array().items(Joi.string()),
-  servicesPricing: Joi.object().default({}),
+  services: Joi.array().items(Joi.string()),
   customServices: Joi.array().items(
     Joi.object({
       id: Joi.string(),
@@ -19,6 +18,7 @@ const createSchema = Joi.object({
       discountType: Joi.string(),
     })
   ),
+  overriddenTotal: Joi.number().min(0).allow(null), // Add this
   discountValue: Joi.number().min(0).default(0),
   discountType: Joi.string().valid('percentage', 'fixed').default('percentage'),
   note: Joi.string().allow('', null),
@@ -37,7 +37,16 @@ exports.list = async (req, res, next) => {
     const items = await Quotation.find(filter)
       .skip(skip)
       .limit(limit)
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .populate({
+        path: 'services',
+        populate: {
+          path: 'packages',
+          populate: {
+            path: 'items',
+          },
+        },
+      });
     res.json({
       data: items,
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
@@ -46,8 +55,6 @@ exports.list = async (req, res, next) => {
     next(err);
   }
 };
-
-
 
 exports.create = async (req, res, next) => {
   try {
@@ -77,8 +84,8 @@ exports.create = async (req, res, next) => {
 
     // Prepare servicesPricing array with validation
     const servicesPricingArr = [];
-    if (value.serviceIds && value.serviceIds.length) {
-      for (const id of value.serviceIds) {
+    if (value.services && value.services.length) {
+      for (const id of value.services) {
         const service = await Service.findOne({
           _id: id,
           deleted: false,
@@ -104,11 +111,24 @@ exports.create = async (req, res, next) => {
 
     const customServices = value.customServices || [];
     const totals = calculateQuotationTotal(
-      servicesPricingArr.map((sp) => ({ price: sp.customPrice })),
+      servicesPricingArr.map((sp) => ({
+        price: sp.customPrice,
+        discount: 0,
+        discountType: 'fixed',
+      })),
       customServices,
       value.discountValue,
       value.discountType
     );
+
+    // Determine final total - use overriddenTotal if provided, otherwise use calculated total
+    const finalTotal =
+      value.overriddenTotal !== undefined && value.overriddenTotal !== null
+        ? value.overriddenTotal
+        : totals.total;
+
+    const isTotalOverridden =
+      value.overriddenTotal !== undefined && value.overriddenTotal !== null;
 
     const doc = new Quotation({
       quotationNumber: quotationNumber(),
@@ -118,7 +138,10 @@ exports.create = async (req, res, next) => {
       subtotal: totals.subtotal,
       discountValue: value.discountValue,
       discountType: value.discountType,
-      total: totals.total,
+      total: finalTotal, // Use the determined final total
+      overriddenTotal: value.overriddenTotal,
+      isTotalOverridden: isTotalOverridden,
+      services: value.services,
       note: value.note,
       validUntil: value.validUntil,
       createdBy: req.user._id,
@@ -131,7 +154,15 @@ exports.create = async (req, res, next) => {
     await doc.populate('servicesPricing.service');
     await doc.populate('clientId', 'business.name personal.fullName');
     await doc.populate('createdBy', 'fullName');
-    await doc.populate('services', { match: { deleted: false } }, { sort: { createdAt: -1 } });
+    await doc.populate({
+      path: 'services',
+      populate: {
+        path: 'packages',
+        populate: {
+          path: 'items',
+        },
+      },
+    });
     await logAudit({
       userId: req.user._id,
       action: 'create',
@@ -156,7 +187,6 @@ exports.create = async (req, res, next) => {
     next(err);
   }
 };
-
 exports.get = async (req, res, next) => {
   try {
     const q = await Quotation.findById(req.params.id)
@@ -165,8 +195,12 @@ exports.get = async (req, res, next) => {
       .populate('createdBy', 'fullName')
       .populate({
         path: 'services',
-        match: { deleted: false },
-        options: { sort: { createdAt: -1 } },
+        populate: {
+          path: 'packages',
+          populate: {
+            path: 'items',
+          },
+        },
       });
     if (!q || q.deleted)
       return res
@@ -180,7 +214,77 @@ exports.get = async (req, res, next) => {
 
 exports.update = async (req, res, next) => {
   try {
-    const updates = req.body;
+    const { error, value } = createSchema.validate(req.body);
+    if (error)
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: error.message },
+      });
+
+    // Get the existing quotation first
+    const existingQuotation = await Quotation.findById(req.params.id);
+    if (!existingQuotation)
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Quotation not found' },
+      });
+
+    // Prepare servicesPricing array with validation (same as create)
+    const servicesPricingArr = [];
+    if (value.services && value.services.length) {
+      for (const id of value.services) {
+        const service = await Service.findOne({
+          _id: id,
+          deleted: false,
+        });
+
+        if (!service) {
+          return res.status(400).json({
+            error: {
+              code: 'INVALID_SERVICE',
+              message: `Service with ID ${id} not found or has been deleted`,
+            },
+          });
+        }
+
+        servicesPricingArr.push({
+          service: service._id,
+          customPrice: service.price,
+        });
+      }
+    }
+
+    const customServices = value.customServices || [];
+
+    // Recalculate totals (same as create)
+    const totals = calculateQuotationTotal(
+      servicesPricingArr.map((sp) => ({
+        price: sp.customPrice,
+        discount: 0,
+        discountType: 'fixed',
+      })),
+      customServices,
+      value.discountValue,
+      value.discountType
+    );
+
+    // Determine final total - use overriddenTotal if provided, otherwise use calculated total
+    const finalTotal =
+      value.overriddenTotal !== undefined && value.overriddenTotal !== null
+        ? value.overriddenTotal
+        : totals.total;
+
+    const isTotalOverridden =
+      value.overriddenTotal !== undefined && value.overriddenTotal !== null;
+
+    // Update the quotation with recalculated totals
+    const updates = {
+      ...value,
+      servicesPricing: servicesPricingArr,
+      subtotal: totals.subtotal,
+      total: finalTotal, // Use the determined final total
+      overriddenTotal: value.overriddenTotal,
+      isTotalOverridden: isTotalOverridden,
+    };
+
     const q = await Quotation.findByIdAndUpdate(req.params.id, updates, {
       new: true,
     })
@@ -189,13 +293,19 @@ exports.update = async (req, res, next) => {
       .populate('createdBy', 'fullName')
       .populate({
         path: 'services',
-        match: { deleted: false },
-        options: { sort: { createdAt: -1 } },
+        populate: {
+          path: 'packages',
+          populate: {
+            path: 'items',
+          },
+        },
       });
+
     if (!q)
-      return res
-        .status(404)
-        .json({ error: { code: 'NOT_FOUND', message: 'Quotation not found' } });
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Quotation not found' },
+      });
+
     await logAudit({
       userId: req.user._id,
       action: 'update',
@@ -205,6 +315,7 @@ exports.update = async (req, res, next) => {
       ipAddress: req.ip,
       userAgent: req.get('User-Agent'),
     });
+
     res.json({ data: q });
   } catch (err) {
     next(err);
@@ -312,7 +423,18 @@ exports.convertToContract = async (req, res, next) => {
     await c.save();
     await c.populate('clientId', 'business.name personal.fullName');
     await c.populate('createdBy', 'fullName');
-    await c.populate('quotationId');
+    await c.populate({
+      path: 'quotationId',
+      populate: {
+        path: 'services',
+        populate: {
+          path: 'packages',
+          populate: {
+            path: 'items',
+          },
+        },
+      },
+    });
     await logAudit({
       userId: req.user._id,
       action: 'convert_to_contract',
@@ -322,7 +444,7 @@ exports.convertToContract = async (req, res, next) => {
       ipAddress: req.ip,
       userAgent: req.get('User-Agent'),
     });
-    
+
     // Update quotation status
     q.status = 'approved';
     await q.save();

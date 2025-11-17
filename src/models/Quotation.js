@@ -28,6 +28,7 @@ const QuotationSchema = new mongoose.Schema(
       index: true,
     },
     servicesPricing: { type: [ServicePricingSchema], default: [] },
+    services: { type: [mongoose.Schema.Types.ObjectId], ref: 'Service' },
     customServices: { type: [CustomServiceSchema], default: [] },
     subtotal: { type: Number, default: 0 },
     discountValue: { type: Number, default: 0 },
@@ -47,6 +48,8 @@ const QuotationSchema = new mongoose.Schema(
     sentAt: { type: Date },
     approvedAt: { type: Date },
     rejectedAt: { type: Date },
+    overriddenTotal: { type: Number, default: null }, // Add this field
+    isTotalOverridden: { type: Boolean, default: false },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -56,13 +59,6 @@ const QuotationSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
-
-QuotationSchema.virtual('services', {
-  ref: 'Service',
-  localField: '_id',
-  foreignField: 'clientId',
-});
-
 
 QuotationSchema.index({ clientId: 1, status: 1 });
 

@@ -1,22 +1,13 @@
 const Package = require('../models/Package');
-const Service = require('../models/Service');
+const Item = require('../models/Item');
 const Joi = require('joi');
-const { calculatePackagePrice } = require('../utils/pricing');
 
 const createSchema = Joi.object({
   nameEn: Joi.string().required(),
   nameAr: Joi.string().required(),
   price: Joi.number().min(0).required(),
-  discount: Joi.number().min(0).default(0),
-  discountType: Joi.string().valid('percentage', 'fixed').default('percentage'),
-  features: Joi.array().items(
-    Joi.object({
-      en: Joi.string(),
-      ar: Joi.string(),
-      quantity: Joi.string().allow('', null),
-    })
-  ),
-  serviceIds: Joi.array().items(Joi.string()),
+  description: Joi.string().allow('', null), // Fixed typo: discription → description
+  items: Joi.array().items(Joi.string()),
 });
 
 exports.list = async function (req, res, next) {
@@ -24,18 +15,42 @@ exports.list = async function (req, res, next) {
     const page = parseInt(req.query.page || '1', 10);
     const limit = Math.min(100, parseInt(req.query.limit || '20', 10));
     const skip = (page - 1) * limit;
-    const filter = { deletedAt: null };
-    if (req.query.isActive !== undefined)
-      filter.isActive = req.query.isActive === 'true';
+    const filter = { deleted: false };
+
+    // Add search functionality
+    if (req.query.search) {
+      filter.$or = [
+        { nameEn: { $regex: req.query.search, $options: 'i' } },
+        { nameAr: { $regex: req.query.search, $options: 'i' } },
+        { description: { $regex: req.query.search, $options: 'i' } },
+      ];
+    }
+
+    // Price range filters
+    if (req.query.minPrice) {
+      filter.price = { ...filter.price, $gte: parseFloat(req.query.minPrice) };
+    }
+    if (req.query.maxPrice) {
+      filter.price = { ...filter.price, $lte: parseFloat(req.query.maxPrice) };
+    }
+
     const total = await Package.countDocuments(filter);
     const packages = await Package.find(filter)
       .skip(skip)
       .limit(limit)
       .sort({ createdAt: -1 })
-      .populate('services');
+      .populate('items');
+
     res.json({
       data: packages,
-      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPrevPage: page > 1,
+      },
     });
   } catch (err) {
     next(err);
@@ -49,49 +64,75 @@ exports.create = async function (req, res, next) {
       return res
         .status(400)
         .json({ error: { code: 'VALIDATION_ERROR', message: error.message } });
-    const services = [];
-    if (value.serviceIds && value.serviceIds.length) {
-      for (const id of value.serviceIds) {
-        const s = await Service.findById(id);
-        if (s) services.push(s._id);
+
+    // Validate all items exist and are not deleted
+    const validItems = [];
+    const invalidItems = [];
+
+    if (value.items && value.items.length) {
+      for (const itemId of value.items) {
+        const item = await Item.findOne({
+          _id: itemId,
+          deleted: false,
+        });
+
+        if (item) {
+          validItems.push(item._id);
+        } else {
+          invalidItems.push(itemId);
+        }
+      }
+
+      // If any invalid items found, return error
+      if (invalidItems.length > 0) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_ITEMS',
+            message: `The following items are invalid or deleted: ${invalidItems.join(
+              ', '
+            )}`,
+          },
+        });
       }
     }
+
     const pack = new Package({
       nameEn: value.nameEn,
       nameAr: value.nameAr,
       price: value.price,
-      discount: value.discount,
-      discountType: value.discountType,
-      features: value.features || [],
-      services,
-      isActive: true,
+      description: value.description, // Fixed typo
+      items: validItems,
+      deleted: false,
     });
-    // computed finalPrice could be returned in response
-    pack.finalPrice = calculatePackagePrice(
-      pack.price,
-      pack.discount,
-      pack.discountType
-    );
+
     await pack.save();
-    res.status(201).json({ package: pack });
+
+    // Populate items for response
+    await pack.populate('items');
+
+    res.status(201).json({ data: pack });
   } catch (err) {
+    // Handle invalid ObjectId format
+    if (err.name === 'CastError') {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_ID_FORMAT',
+          message: 'Invalid item ID format',
+        },
+      });
+    }
     next(err);
   }
 };
 
 exports.get = async function (req, res, next) {
   try {
-    const pack = await Package.findById(req.params.id).populate('services');
-    if (!pack || pack.deletedAt)
+    const pack = await Package.findById(req.params.id).populate('items');
+    if (!pack || pack.deleted)
       return res
         .status(404)
         .json({ error: { code: 'NOT_FOUND', message: 'Package not found' } });
-    const finalPrice = calculatePackagePrice(
-      pack.price,
-      pack.discount,
-      pack.discountType
-    );
-    res.json({ package: pack, finalPrice });
+    res.json({ data: pack });
   } catch (err) {
     next(err);
   }
@@ -99,84 +140,83 @@ exports.get = async function (req, res, next) {
 
 exports.update = async function (req, res, next) {
   try {
-    const allowed = [
-      'nameEn',
-      'nameAr',
-      'price',
-      'discount',
-      'discountType',
-      'features',
-      'serviceIds',
-      'isActive',
-    ];
-    const updates = {};
-    for (const k of allowed)
-      if (req.body[k] !== undefined) updates[k] = req.body[k];
-    if (updates.serviceIds) {
-      const services = [];
-      for (const id of updates.serviceIds) {
-        const s = await Service.findById(id);
-        if (s) services.push(s._id);
+    const { error, value } = createSchema.validate(req.body);
+    if (error)
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: error.message },
+      });
+
+    const updates = { ...value };
+
+    // Validate items if being updated
+    if (updates.items) {
+      const validItems = [];
+      const invalidItems = [];
+
+      for (const itemId of updates.items) {
+        const item = await Item.findOne({
+          _id: itemId,
+          deleted: false,
+        });
+
+        if (item) {
+          validItems.push(item._id);
+        } else {
+          invalidItems.push(itemId);
+        }
       }
-      updates.services = services;
-      delete updates.serviceIds;
+
+      // If any invalid items found, return error
+      if (invalidItems.length > 0) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_ITEMS',
+            message: `The following items are invalid or deleted: ${invalidItems.join(
+              ', '
+            )}`,
+          },
+        });
+      }
+
+      updates.items = validItems;
     }
+
     const pack = await Package.findByIdAndUpdate(req.params.id, updates, {
       new: true,
-    }).populate('services');
-    if (!pack)
-      return res
-        .status(404)
-        .json({ error: { code: 'NOT_FOUND', message: 'Package not found' } });
-    res.json({ package: pack });
-  } catch (err) {
-    next(err);
-  }
-};
+    }).populate('items');
 
-exports.activate = async function (req, res, next) {
-  try {
-    const pack = await Package.findByIdAndUpdate(
-      req.params.id,
-      { isActive: true },
-      { new: true }
-    );
-    if (!pack)
+    if (!pack || pack.deleted)
       return res
         .status(404)
         .json({ error: { code: 'NOT_FOUND', message: 'Package not found' } });
-    res.json({ package: pack });
-  } catch (err) {
-    next(err);
-  }
-};
 
-exports.deactivate = async function (req, res, next) {
-  try {
-    const pack = await Package.findByIdAndUpdate(
-      req.params.id,
-      { isActive: false },
-      { new: true }
-    );
-    if (!pack)
-      return res
-        .status(404)
-        .json({ error: { code: 'NOT_FOUND', message: 'Package not found' } });
-    res.json({ package: pack });
+    res.json({ data: pack });
   } catch (err) {
+    if (err.name === 'CastError') {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_ID_FORMAT',
+          message: 'Invalid item ID format',
+        },
+      });
+    }
     next(err);
   }
 };
 
 exports.remove = async function (req, res, next) {
   try {
-    const pack = await Package.findByIdAndUpdate(req.params.id, {
-      deletedAt: new Date(),
-    });
+    const pack = await Package.findByIdAndUpdate(
+      req.params.id,
+      { deleted: true },
+      { new: true }
+    );
+
     if (!pack)
       return res
         .status(404)
         .json({ error: { code: 'NOT_FOUND', message: 'Package not found' } });
+
     res.status(204).send();
   } catch (err) {
     next(err);

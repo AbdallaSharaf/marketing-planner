@@ -250,13 +250,34 @@ exports.getById = async (req, res, next) => {
         path: 'contracts',
         match: { deleted: false },
         options: { sort: { createdAt: -1 } },
+        populate: {
+          path: 'quotations',
+          populate: {
+            path: 'services',
+            populate: {
+              path: 'packages',
+              populate: {
+                path: 'items',
+              },
+            },
+          },
+        }
       })
       .populate({
         path: 'quotations',
         match: { deleted: false },
         options: { sort: { createdAt: -1 } },
+        populate: {
+          path: 'services',
+          populate: {
+            path: 'packages',
+            populate: {
+              path: 'items',
+            },
+          },
+        },
       });
-    
+
     if (!client || client.deleted)
       return res
         .status(404)
@@ -269,7 +290,7 @@ exports.getById = async (req, res, next) => {
 
 exports.update = async (req, res, next) => {
   try {
-    const allowed = ['personal', 'business', 'contact', 'status', 'deleted'];
+    const allowed = ['personal', 'business', 'contact', 'status', 'deleted', 'swot', 'socialLinks'];
     const updates = {};
     for (const k of allowed)
       if (req.body[k] !== undefined) updates[k] = req.body[k];

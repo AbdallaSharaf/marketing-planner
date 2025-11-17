@@ -1,12 +1,3 @@
-function calculatePackagePrice(price, discount, discountType) {
-  if (!discount || discount === 0) return price;
-  if (discountType === 'percentage') {
-    return Math.max(0, price - (price * discount) / 100);
-  } else {
-    return Math.max(0, price - discount);
-  }
-}
-
 function calculateServiceFinalPrice(price, discount, discountType) {
   if (!discount || discount === 0) return price;
   let discountAmount = 0;
@@ -53,7 +44,6 @@ function calculateQuotationTotal(
 }
 
 module.exports = {
-  calculatePackagePrice,
   calculateServiceFinalPrice,
   calculateQuotationTotal,
 };
