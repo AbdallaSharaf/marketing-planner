@@ -1,6 +1,7 @@
 const Client = require('../models/Client');
 const Joi = require('joi');
 
+
 const createSchema = Joi.object({
   personal: Joi.object({
     fullName: Joi.string().max(255).required(),
