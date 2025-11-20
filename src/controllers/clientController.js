@@ -4,13 +4,13 @@ const Joi = require('joi');
 const createSchema = Joi.object({
   personal: Joi.object({
     fullName: Joi.string().max(255).required(),
-    email: Joi.string().email().required(),
-    phone: Joi.string().required(),
+    email: Joi.string().email().allow('', null),
+    phone: Joi.string().allow('', null),
     position: Joi.string().allow('', null),
   }).required(),
   business: Joi.object({
     name: Joi.string().max(255).required(),
-    category: Joi.string().required(),
+    category: Joi.string().allow('', null),
     description: Joi.string().allow('', null),
     mainOfficeAddress: Joi.string().allow('', null),
     establishedYear: Joi.number()
