@@ -7,6 +7,7 @@ const router = express.Router({ mergeParams: true });
 
 router.get('/', auth, controller.list);
 router.post('/', auth, roles(['admin', 'manager']), controller.create);
+router.post('/bulk', auth, roles(['admin', 'manager']), controller.bulkCreate); // Add this
 router.put(
   '/:competitorId',
   auth,

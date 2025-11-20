@@ -10,6 +10,7 @@ const BranchSchema = new mongoose.Schema(
     name: { type: String, required: true },
     address: { type: String },
     phone: { type: String },
+    city: { type: String },
     deleted: { type: Boolean, default: false },
   },
   { timestamps: true }

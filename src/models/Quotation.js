@@ -11,6 +11,7 @@ const CustomServiceSchema = new mongoose.Schema(
   },
   { _id: false }
 );
+
 const ServicePricingSchema = new mongoose.Schema(
   {
     service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service' },
@@ -27,6 +28,7 @@ const QuotationSchema = new mongoose.Schema(
       ref: 'Client',
       index: true,
     },
+    clientName: { type: String }, // Add clientName field for non-existing clients
     servicesPricing: { type: [ServicePricingSchema], default: [] },
     services: { type: [mongoose.Schema.Types.ObjectId], ref: 'Service' },
     customServices: { type: [CustomServiceSchema], default: [] },
@@ -48,7 +50,7 @@ const QuotationSchema = new mongoose.Schema(
     sentAt: { type: Date },
     approvedAt: { type: Date },
     rejectedAt: { type: Date },
-    overriddenTotal: { type: Number, default: null }, // Add this field
+    overriddenTotal: { type: Number, default: null },
     isTotalOverridden: { type: Boolean, default: false },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -61,5 +63,6 @@ const QuotationSchema = new mongoose.Schema(
 );
 
 QuotationSchema.index({ clientId: 1, status: 1 });
+QuotationSchema.index({ clientName: 1 }); // Add index for clientName
 
 module.exports = mongoose.model('Quotation', QuotationSchema);

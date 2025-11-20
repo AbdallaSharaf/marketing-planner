@@ -8,6 +8,7 @@ const createSchema = Joi.object({
   clientId: Joi.string().required(),
   quotationId: Joi.string().allow(null),
   contractTerms: Joi.array().items(Joi.string()).default([]),
+  contractBody: Joi.string().allow('', null),
   startDate: Joi.date().iso(),
   endDate: Joi.date().iso(),
   value: Joi.number().min(0).default(0).allow(null),

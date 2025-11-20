@@ -8,6 +8,7 @@ const router = express.Router({ mergeParams: true });
 router.get('/', auth, controller.list);
 router.post('/', auth, roles(['admin', 'manager']), controller.create);
 router.put('/:branchId', auth, roles(['admin', 'manager']), controller.update);
+router.post('/bulk', auth, roles(['admin', 'manager']), controller.bulkCreate); // Add this line
 router.delete('/:branchId', auth, roles(['admin']), controller.remove);
 
 module.exports = router;

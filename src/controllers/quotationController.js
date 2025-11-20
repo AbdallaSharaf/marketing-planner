@@ -1,5 +1,6 @@
 const Quotation = require('../models/Quotation');
 const Service = require('../models/Service');
+const Client = require('../models/Client'); // Import Client model
 const Joi = require('joi');
 const { quotationNumber } = require('../utils/identifier');
 const { calculateQuotationTotal } = require('../utils/pricing');
@@ -7,6 +8,7 @@ const { logAudit } = require('../utils/audit');
 
 const createSchema = Joi.object({
   clientId: Joi.string().allow(null),
+  clientName: Joi.string().allow('', null), // Add clientName field
   services: Joi.array().items(Joi.string()),
   customServices: Joi.array().items(
     Joi.object({
@@ -18,7 +20,7 @@ const createSchema = Joi.object({
       discountType: Joi.string(),
     })
   ),
-  overriddenTotal: Joi.number().min(0).allow(null), // Add this
+  overriddenTotal: Joi.number().min(0).allow(null),
   discountValue: Joi.number().min(0).default(0),
   discountType: Joi.string().valid('percentage', 'fixed').default('percentage'),
   note: Joi.string().allow('', null),
@@ -64,9 +66,12 @@ exports.create = async (req, res, next) => {
         error: { code: 'VALIDATION_ERROR', message: error.message },
       });
 
-    // Validate client exists if provided
+    let clientId = null;
+    let clientName = null;
+
+    // Handle client identification - either clientId OR clientName
     if (value.clientId) {
-      const Client = require('../models/Client');
+      // Validate client exists if clientId is provided
       const clientExists = await Client.findOne({
         _id: value.clientId,
         deleted: false,
@@ -80,7 +85,12 @@ exports.create = async (req, res, next) => {
           },
         });
       }
+      clientId = value.clientId;
+    } else if (value.clientName) {
+      // Use clientName for non-existing clients
+      clientName = value.clientName;
     }
+    // If neither clientId nor clientName provided, quotation will be created without client reference
 
     // Prepare servicesPricing array with validation
     const servicesPricingArr = [];
@@ -132,13 +142,14 @@ exports.create = async (req, res, next) => {
 
     const doc = new Quotation({
       quotationNumber: quotationNumber(),
-      clientId: value.clientId,
+      clientId: clientId, // Will be null if no clientId provided
+      clientName: clientName, // Store clientName for non-existing clients
       servicesPricing: servicesPricingArr,
       customServices,
       subtotal: totals.subtotal,
       discountValue: value.discountValue,
       discountType: value.discountType,
-      total: finalTotal, // Use the determined final total
+      total: finalTotal,
       overriddenTotal: value.overriddenTotal,
       isTotalOverridden: isTotalOverridden,
       services: value.services,
@@ -152,7 +163,9 @@ exports.create = async (req, res, next) => {
 
     // Populate after save for response
     await doc.populate('servicesPricing.service');
-    await doc.populate('clientId', 'business.name personal.fullName');
+    if (clientId) {
+      await doc.populate('clientId', 'business.name personal.fullName');
+    }
     await doc.populate('createdBy', 'fullName');
     await doc.populate({
       path: 'services',
@@ -163,6 +176,7 @@ exports.create = async (req, res, next) => {
         },
       },
     });
+
     await logAudit({
       userId: req.user._id,
       action: 'create',
@@ -187,6 +201,8 @@ exports.create = async (req, res, next) => {
     next(err);
   }
 };
+
+// Also update the get method to handle clientName
 exports.get = async (req, res, next) => {
   try {
     const q = await Quotation.findById(req.params.id)
@@ -212,6 +228,7 @@ exports.get = async (req, res, next) => {
   }
 };
 
+// Update the update method to handle clientName
 exports.update = async (req, res, next) => {
   try {
     const { error, value } = createSchema.validate(req.body);
@@ -226,6 +243,41 @@ exports.update = async (req, res, next) => {
       return res.status(404).json({
         error: { code: 'NOT_FOUND', message: 'Quotation not found' },
       });
+
+    let clientId = existingQuotation.clientId;
+    let clientName = existingQuotation.clientName;
+
+    // Handle client identification updates
+    if (value.clientId !== undefined) {
+      if (value.clientId) {
+        // Validate client exists if clientId is provided
+        const clientExists = await Client.findOne({
+          _id: value.clientId,
+          deleted: false,
+        });
+
+        if (!clientExists) {
+          return res.status(400).json({
+            error: {
+              code: 'INVALID_CLIENT',
+              message: 'Client not found or has been deleted',
+            },
+          });
+        }
+        clientId = value.clientId;
+        clientName = null; // Clear clientName if clientId is set
+      } else {
+        clientId = null; // Clear clientId if empty string or null
+      }
+    }
+
+    if (value.clientName !== undefined) {
+      clientName = value.clientName;
+      // If setting clientName, clear clientId unless explicitly provided
+      if (value.clientId === undefined) {
+        clientId = null;
+      }
+    }
 
     // Prepare servicesPricing array with validation (same as create)
     const servicesPricingArr = [];
@@ -278,9 +330,11 @@ exports.update = async (req, res, next) => {
     // Update the quotation with recalculated totals
     const updates = {
       ...value,
+      clientId: clientId,
+      clientName: clientName,
       servicesPricing: servicesPricingArr,
       subtotal: totals.subtotal,
-      total: finalTotal, // Use the determined final total
+      total: finalTotal,
       overriddenTotal: value.overriddenTotal,
       isTotalOverridden: isTotalOverridden,
     };
@@ -322,6 +376,7 @@ exports.update = async (req, res, next) => {
   }
 };
 
+// Other methods remain the same...
 exports.remove = async (req, res, next) => {
   try {
     const q = await Quotation.findByIdAndUpdate(req.params.id, {
@@ -369,9 +424,8 @@ exports.convertToContract = async (req, res, next) => {
         error: { code: 'NOT_FOUND', message: 'Quotation not found' },
       });
 
-    // Validate client exists before creating contract
+    // Validate client exists before creating contract (only if clientId is present)
     if (q.clientId) {
-      const Client = require('../models/Client');
       const clientExists = await Client.findOne({
         _id: q.clientId,
         deleted: false,
@@ -411,6 +465,7 @@ exports.convertToContract = async (req, res, next) => {
     const c = new Contract({
       contractNumber: contractNumber(),
       clientId: q.clientId,
+      clientName: q.clientName, // Pass clientName to contract as well
       quotationId: q._id,
       contractTerms: contractTerms || q.note || '',
       startDate,
@@ -421,7 +476,9 @@ exports.convertToContract = async (req, res, next) => {
     });
 
     await c.save();
-    await c.populate('clientId', 'business.name personal.fullName');
+    if (q.clientId) {
+      await c.populate('clientId', 'business.name personal.fullName');
+    }
     await c.populate('createdBy', 'fullName');
     await c.populate({
       path: 'quotationId',
@@ -435,6 +492,7 @@ exports.convertToContract = async (req, res, next) => {
         },
       },
     });
+
     await logAudit({
       userId: req.user._id,
       action: 'convert_to_contract',
