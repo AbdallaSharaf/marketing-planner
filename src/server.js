@@ -8,9 +8,9 @@ const PORT = process.env.PORT || 5000;
 // as the handler instead of starting a long-lived listener. When run
 // locally (node src/server.js or npm run dev) we connect the DB and
 // start the server as usual.
-async function start() {
+function start() {
   try {
-    await connectDB();
+    connectDB();
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });

@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 
 module.exports = async function connectDB() {
-  try {
     const uri =
       process.env.MONGODB_URI || 'mongodb://localhost:27017/marketing-planner';
 
@@ -23,8 +22,4 @@ module.exports = async function connectDB() {
     const conn = await mongoose.connect(uri, opts);
     console.log('✅ Connected to MongoDB successfully');
     return conn;
-  } catch (error) {
-    console.error('❌ MongoDB connection error:', error);
-    throw error;
-  }
 };
