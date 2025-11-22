@@ -24,7 +24,7 @@ const createSchema = Joi.object({
     businessPhone: Joi.string().allow('', null),
     businessWhatsApp: Joi.string().allow('', null),
     businessEmail: Joi.string().email().allow('', null),
-    website: Joi.string().uri().allow('', null),
+    website: Joi.string().allow('', null),
   }).optional(),
   swot: Joi.object({
     strengths: Joi.array().items(Joi.string()).default([]),
