@@ -4,12 +4,11 @@ const Joi = require('joi');
 const schema = Joi.object({
   name: Joi.string().required(),
   description: Joi.string().allow('', null),
-  ageRange: Joi.string().allow('', null),
-  gender: Joi.string().valid('all', 'male', 'female', 'other').default('all'),
-  interests: Joi.array().items(Joi.string()).default([]),
-  incomeLevel: Joi.string()
-    .valid('low', 'middle', 'high', 'varied')
-    .allow(null),
+  ageRange: Joi.array().items(Joi.string()).default([]),
+  gender: Joi.array().items(Joi.string().valid('all', 'male', 'female', 'other')).default(['all']),
+  area: Joi.array().items(Joi.string()).default([]),
+  governorate: Joi.array().items(Joi.string()).default([]),
+  note: Joi.string().allow('', null),
 });
 
 // Bulk schema for multiple segments

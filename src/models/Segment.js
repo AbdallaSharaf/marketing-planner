@@ -9,14 +9,15 @@ const SegmentSchema = new mongoose.Schema(
     },
     name: { type: String, required: true },
     description: { type: String },
-    ageRange: { type: String },
-    gender: {
+    ageRange: [{ type: String }],
+    gender: [{
       type: String,
       enum: ['all', 'male', 'female', 'other'],
       default: 'all',
-    },
-    interests: { type: [String], default: [] },
-    incomeLevel: { type: String, enum: ['low', 'middle', 'high', 'varied'] },
+    }],
+    area: [{ type: String }],
+    governorate: [{ type: String }],
+    note: { type: String },
     deleted: { type: Boolean, default: false },
   },
   { timestamps: true }
