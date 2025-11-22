@@ -14,7 +14,7 @@ const CustomServiceSchema = new mongoose.Schema(
 
 const ServicePricingSchema = new mongoose.Schema(
   {
-    package: { type: mongoose.Schema.Types.ObjectId, ref: 'Ppackage' },
+    package: { type: mongoose.Schema.Types.ObjectId, ref: 'Package' },
     customPrice: Number,
   },
   { _id: false }
