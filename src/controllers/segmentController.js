@@ -5,10 +5,13 @@ const schema = Joi.object({
   name: Joi.string().required(),
   description: Joi.string().allow('', null),
   ageRange: Joi.array().items(Joi.string()).default([]),
-  gender: Joi.array().items(Joi.string().valid('all', 'male', 'female', 'other')).default(['all']),
+  gender: Joi.array()
+    .items(Joi.string().valid('all', 'male', 'female', 'other'))
+    .default(['all']),
   area: Joi.array().items(Joi.string()).default([]),
   governorate: Joi.array().items(Joi.string()).default([]),
   note: Joi.string().allow('', null),
+  productName: Joi.string().allow('', null),
 });
 
 // Bulk schema for multiple segments
