@@ -13,7 +13,7 @@ const schema = Joi.object({
       Joi.object({
         platform: Joi.string()
           .required(),
-        url: Joi.string().uri().required(),
+        url: Joi.string().required(),
       })
     )
     .default([]),
