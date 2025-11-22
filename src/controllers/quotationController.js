@@ -5,11 +5,12 @@ const Joi = require('joi');
 const { quotationNumber } = require('../utils/identifier');
 const { calculateQuotationTotal } = require('../utils/pricing');
 const { logAudit } = require('../utils/audit');
+const Package = require('../models/Package');
 
 const createSchema = Joi.object({
   clientId: Joi.string().allow(null),
   clientName: Joi.string().allow('', null), // Add clientName field
-  services: Joi.array().items(Joi.string()),
+  packages: Joi.array().items(Joi.string()),
   customServices: Joi.array().items(
     Joi.object({
       id: Joi.string(),
@@ -41,12 +42,9 @@ exports.list = async (req, res, next) => {
       .limit(limit)
       .sort({ createdAt: -1 })
       .populate({
-        path: 'services',
+        path: 'packages',
         populate: {
-          path: 'packages',
-          populate: {
-            path: 'items',
-          },
+          path: 'items',
         },
       });
     res.json({
@@ -94,27 +92,27 @@ exports.create = async (req, res, next) => {
 
     // Prepare servicesPricing array with validation
     const servicesPricingArr = [];
-    if (value.services && value.services.length) {
-      for (const id of value.services) {
-        const service = await Service.findOne({
+    if (value.packages && value.packages.length) {
+      for (const id of value.packages) {
+        const package = await Package.findOne({
           _id: id,
           deleted: false,
         });
 
-        if (!service) {
+        if (!package) {
           return res.status(400).json({
             error: {
-              code: 'INVALID_SERVICE',
-              message: `Service with ID ${id} not found or has been deleted`,
+              code: 'INVALID_PACKAGE',
+              message: `Package with ID ${id} not found or has been deleted`,
             },
           });
         }
 
         servicesPricingArr.push({
-          service: service._id,
+          service: package._id,
           customPrice:
             (value.servicesPricing && value.servicesPricing[id]) ||
-            service.price,
+            package.price,
         });
       }
     }
@@ -152,7 +150,7 @@ exports.create = async (req, res, next) => {
       total: finalTotal,
       overriddenTotal: value.overriddenTotal,
       isTotalOverridden: isTotalOverridden,
-      services: value.services,
+      packages: value.packages,
       note: value.note,
       validUntil: value.validUntil,
       createdBy: req.user._id,
@@ -162,19 +160,16 @@ exports.create = async (req, res, next) => {
     await doc.save();
 
     // Populate after save for response
-    await doc.populate('servicesPricing.service');
+    await doc.populate('servicesPricing.package');
     if (clientId) {
       await doc.populate('clientId', 'business.name personal.fullName');
     }
     await doc.populate('createdBy', 'fullName');
     await doc.populate({
-      path: 'services',
-      populate: {
         path: 'packages',
         populate: {
           path: 'items',
         },
-      },
     });
 
     await logAudit({
@@ -206,17 +201,14 @@ exports.create = async (req, res, next) => {
 exports.get = async (req, res, next) => {
   try {
     const q = await Quotation.findById(req.params.id)
-      .populate('servicesPricing.service')
+      .populate('servicesPricing.package')
       .populate('clientId', 'business.name personal.fullName')
       .populate('createdBy', 'fullName')
       .populate({
-        path: 'services',
-        populate: {
           path: 'packages',
           populate: {
             path: 'items',
           },
-        },
       });
     if (!q || q.deleted)
       return res
@@ -281,25 +273,27 @@ exports.update = async (req, res, next) => {
 
     // Prepare servicesPricing array with validation (same as create)
     const servicesPricingArr = [];
-    if (value.services && value.services.length) {
-      for (const id of value.services) {
-        const service = await Service.findOne({
+    if (value.packages && value.packages.length) {
+      for (const id of value.packages) {
+        const package = await Package.findOne({
           _id: id,
           deleted: false,
         });
 
-        if (!service) {
+        if (!package) {
           return res.status(400).json({
             error: {
-              code: 'INVALID_SERVICE',
-              message: `Service with ID ${id} not found or has been deleted`,
+              code: 'INVALID_PACKAGE',
+              message: `Package with ID ${id} not found or has been deleted`,
             },
           });
         }
 
         servicesPricingArr.push({
-          service: service._id,
-          customPrice: service.price,
+          service: package._id,
+          customPrice:
+            (value.servicesPricing && value.servicesPricing[id]) ||
+            package.price,
         });
       }
     }
@@ -342,17 +336,14 @@ exports.update = async (req, res, next) => {
     const q = await Quotation.findByIdAndUpdate(req.params.id, updates, {
       new: true,
     })
-      .populate('servicesPricing.service')
+      .populate('servicesPricing.package')
       .populate('clientId', 'business.name personal.fullName')
       .populate('createdBy', 'fullName')
       .populate({
-        path: 'services',
-        populate: {
           path: 'packages',
           populate: {
             path: 'items',
           },
-        },
       });
 
     if (!q)
@@ -483,13 +474,10 @@ exports.convertToContract = async (req, res, next) => {
     await c.populate({
       path: 'quotationId',
       populate: {
-        path: 'services',
-        populate: {
           path: 'packages',
           populate: {
             path: 'items',
           },
-        },
       },
     });
 

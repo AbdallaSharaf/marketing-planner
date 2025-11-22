@@ -14,7 +14,7 @@ const CustomServiceSchema = new mongoose.Schema(
 
 const ServicePricingSchema = new mongoose.Schema(
   {
-    service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service' },
+    package: { type: mongoose.Schema.Types.ObjectId, ref: 'Ppackage' },
     customPrice: Number,
   },
   { _id: false }
@@ -30,7 +30,7 @@ const QuotationSchema = new mongoose.Schema(
     },
     clientName: { type: String }, // Add clientName field for non-existing clients
     servicesPricing: { type: [ServicePricingSchema], default: [] },
-    services: { type: [mongoose.Schema.Types.ObjectId], ref: 'Service' },
+    packages: { type: [mongoose.Schema.Types.ObjectId], ref: 'Package' },
     customServices: { type: [CustomServiceSchema], default: [] },
     subtotal: { type: Number, default: 0 },
     discountValue: { type: Number, default: 0 },
