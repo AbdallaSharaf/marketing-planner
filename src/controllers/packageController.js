@@ -2,12 +2,17 @@ const Package = require('../models/Package');
 const Item = require('../models/Item');
 const Joi = require('joi');
 
+const packageItemSchema = Joi.object({
+  item: Joi.string().required(),
+  quantity: Joi.number().min(1).default(1),
+});
+
 const createSchema = Joi.object({
   nameEn: Joi.string().required(),
   nameAr: Joi.string().required(),
   price: Joi.number().min(0).required(),
-  description: Joi.string().allow('', null), // Fixed typo: discription → description
-  items: Joi.array().items(Joi.string()),
+  description: Joi.string().allow('', null),
+  items: Joi.array().items(packageItemSchema).default([]),
 });
 
 exports.list = async function (req, res, next) {
@@ -39,7 +44,7 @@ exports.list = async function (req, res, next) {
       .skip(skip)
       .limit(limit)
       .sort({ createdAt: -1 })
-      .populate('items');
+      .populate('items.item'); // Updated population path
 
     res.json({
       data: packages,
@@ -70,16 +75,19 @@ exports.create = async function (req, res, next) {
     const invalidItems = [];
 
     if (value.items && value.items.length) {
-      for (const itemId of value.items) {
+      for (const itemData of value.items) {
         const item = await Item.findOne({
-          _id: itemId,
+          _id: itemData.item,
           deleted: false,
         });
 
         if (item) {
-          validItems.push(item._id);
+          validItems.push({
+            item: item._id,
+            quantity: itemData.quantity || 1,
+          });
         } else {
-          invalidItems.push(itemId);
+          invalidItems.push(itemData.item);
         }
       }
 
@@ -100,7 +108,7 @@ exports.create = async function (req, res, next) {
       nameEn: value.nameEn,
       nameAr: value.nameAr,
       price: value.price,
-      description: value.description, // Fixed typo
+      description: value.description,
       items: validItems,
       deleted: false,
     });
@@ -108,7 +116,7 @@ exports.create = async function (req, res, next) {
     await pack.save();
 
     // Populate items for response
-    await pack.populate('items');
+    await pack.populate('items.item');
 
     res.status(201).json({ data: pack });
   } catch (err) {
@@ -127,7 +135,7 @@ exports.create = async function (req, res, next) {
 
 exports.get = async function (req, res, next) {
   try {
-    const pack = await Package.findById(req.params.id).populate('items');
+    const pack = await Package.findById(req.params.id).populate('items.item');
     if (!pack || pack.deleted)
       return res
         .status(404)
@@ -153,16 +161,19 @@ exports.update = async function (req, res, next) {
       const validItems = [];
       const invalidItems = [];
 
-      for (const itemId of updates.items) {
+      for (const itemData of updates.items) {
         const item = await Item.findOne({
-          _id: itemId,
+          _id: itemData.item,
           deleted: false,
         });
 
         if (item) {
-          validItems.push(item._id);
+          validItems.push({
+            item: item._id,
+            quantity: itemData.quantity || 1,
+          });
         } else {
-          invalidItems.push(itemId);
+          invalidItems.push(itemData.item);
         }
       }
 
@@ -183,7 +194,7 @@ exports.update = async function (req, res, next) {
 
     const pack = await Package.findByIdAndUpdate(req.params.id, updates, {
       new: true,
-    }).populate('items');
+    }).populate('items.item');
 
     if (!pack || pack.deleted)
       return res
