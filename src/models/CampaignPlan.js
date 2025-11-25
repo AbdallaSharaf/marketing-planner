@@ -13,17 +13,36 @@ const CampaignPlanSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    branches: { type: [mongoose.Schema.Types.ObjectId], ref: 'Branch' },
+    segments: { type: [mongoose.Schema.Types.ObjectId], ref: 'Segment' },
+    competitors: { type: [mongoose.Schema.Types.ObjectId], ref: 'Competitor' },
+    swotAnalysis: {
+      strengths: { type: [String], default: [] },
+      weaknesses: { type: [String], default: [] },
+      opportunities: { type: [String], default: [] },
+      threats: { type: [String], default: [] },
+    },
     description: { type: String },
     objectives: [
       {
         name: { type: String, required: true },
+        ar: { type: String, required: true },
         description: { type: String },
+        descriptionAr: { type: String },
       },
     ],
     strategy: {
       budget: { type: Number, min: 0 },
-      timeline: { type: String },
+      timeline: [
+        {
+          timelineStart: { type: String },
+          timelineEnd: { type: String },
+          objectiveEn: { type: String },
+          objectiveAr: { type: String },
+        },
+      ],
       description: { type: String },
+      descriptionAr: { type: String },
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

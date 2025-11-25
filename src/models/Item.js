@@ -2,8 +2,10 @@ const mongoose = require('mongoose');
 
 const ItemSchema = new mongoose.Schema(
   {
+    ar: { type: String, required: true },
     name: { type: String, required: true },
     description: { type: String },
+    descriptionAr: { type: String },
     deleted: { type: Boolean, default: false },
   },
   { timestamps: true }

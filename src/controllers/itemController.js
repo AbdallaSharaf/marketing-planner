@@ -3,7 +3,9 @@ const Joi = require('joi');
 
 const schema = Joi.object({
   name: Joi.string().required(),
+  ar: Joi.string().required(),
   description: Joi.string().allow('', null),
+  descriptionAr: Joi.string().allow('', null),
 });
 
 exports.list = async (req, res, next) => {
@@ -18,6 +20,7 @@ exports.list = async (req, res, next) => {
     if (req.query.search) {
       filter.$or = [
         { name: { $regex: req.query.search, $options: 'i' } },
+        { ar: { $regex: req.query.search, $options: 'i' } },
         { description: { $regex: req.query.search, $options: 'i' } },
       ];
     }

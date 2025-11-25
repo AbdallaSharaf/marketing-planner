@@ -22,6 +22,7 @@ const PackageSchema = new mongoose.Schema(
     nameEn: { type: String, required: true },
     nameAr: { type: String, required: true },
     description: { type: String },
+    descriptionAr: { type: String },
     price: { type: Number, required: true, min: 0 },
     items: [PackageItemSchema], // Changed to array of objects with quantity
     deleted: { type: Boolean, default: false },

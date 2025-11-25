@@ -9,9 +9,10 @@ const schema = Joi.object({
     .items(Joi.string().valid('all', 'male', 'female', 'other'))
     .default(['all']),
   area: Joi.array().items(Joi.string()).default([]),
+  population: Joi.number(),
   governorate: Joi.array().items(Joi.string()).default([]),
   note: Joi.string().allow('', null),
-  productName: Joi.string().allow('', null),
+  productName: Joi.array().items(Joi.string()).default([]),
 });
 
 // Bulk schema for multiple segments

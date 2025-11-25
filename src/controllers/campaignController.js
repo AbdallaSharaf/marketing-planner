@@ -1,5 +1,8 @@
 const CampaignPlan = require('../models/CampaignPlan');
 const Client = require('../models/Client');
+const Segment = require('../models/Segment'); // Make sure to import these models
+const Competitor = require('../models/Competitor');
+const Branch = require('../models/Branch');
 const Joi = require('joi');
 const { logAudit } = require('../utils/audit');
 
@@ -9,22 +12,103 @@ const createSchema = Joi.object({
   objectives: Joi.array().items(
     Joi.object({
       name: Joi.string().required(),
+      ar: Joi.string().required(),
       description: Joi.string().allow('', null),
+      descriptionAr: Joi.string().allow('', null),
     })
   ),
   strategy: Joi.object({
     budget: Joi.number().min(0),
-    timeline: Joi.string().allow('', null),
+    timeline: Joi.array().items(
+      Joi.object({
+        timelineStart: Joi.string(),
+        timelineEnd: Joi.string(),
+        objectiveEn: Joi.string(),
+        objectiveAr: Joi.string(),
+      })
+    ),
     description: Joi.string().allow('', null),
+    descriptionAr: Joi.string().allow('', null),
   }),
+  swot: Joi.object({
+    strengths: Joi.array().items(Joi.string()).default([]),
+    weaknesses: Joi.array().items(Joi.string()).default([]),
+    opportunities: Joi.array().items(Joi.string()).default([]),
+    threats: Joi.array().items(Joi.string()).default([]),
+  }),
+  segments: Joi.array().items(Joi.string()).default([]),
+  branches: Joi.array().items(Joi.string()).default([]),
+  competitors: Joi.array().items(Joi.string()).default([]),
 });
+
+// Helper function to validate related entities
+const validateRelatedEntities = async (clientId, entities, entityType) => {
+  if (!entities || entities.length === 0) return { valid: true };
+
+  let Model;
+  let fieldName;
+
+  switch (entityType) {
+    case 'segments':
+      Model = Segment;
+      fieldName = 'clientId';
+      break;
+    case 'competitors':
+      Model = Competitor;
+      fieldName = 'clientId';
+      break;
+    case 'branches':
+      Model = Branch;
+      fieldName = 'clientId';
+      break;
+    default:
+      return { valid: false, error: `Unknown entity type: ${entityType}` };
+  }
+
+  // Check if all entities exist and belong to the same client
+  const existingEntities = await Model.find({
+    _id: { $in: entities },
+    deleted: false,
+  });
+
+  const foundIds = existingEntities.map((entity) => entity._id.toString());
+  const invalidIds = entities.filter((id) => !foundIds.includes(id));
+
+  if (invalidIds.length > 0) {
+    return {
+      valid: false,
+      error: `The following ${entityType} do not exist: ${invalidIds.join(
+        ', '
+      )}`,
+    };
+  }
+
+  // Check if all entities belong to the same client
+  const entitiesWithDifferentClient = existingEntities.filter(
+    (entity) => entity[fieldName].toString() !== clientId.toString()
+  );
+
+  if (entitiesWithDifferentClient.length > 0) {
+    const invalidEntityIds = entitiesWithDifferentClient.map((entity) =>
+      entity._id.toString()
+    );
+    return {
+      valid: false,
+      error: `The following ${entityType} do not belong to the specified client: ${invalidEntityIds.join(
+        ', '
+      )}`,
+    };
+  }
+
+  return { valid: true };
+};
 
 exports.list = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page || '1', 10);
     const limit = Math.min(100, parseInt(req.query.limit || '20', 10));
     const skip = (page - 1) * limit;
-    const filter = { deleted: false }; // Changed from deletedAt to deleted
+    const filter = { deleted: false };
 
     // Add filtering
     if (req.query.clientId) filter.clientId = req.query.clientId;
@@ -38,8 +122,11 @@ exports.list = async (req, res, next) => {
 
     const total = await CampaignPlan.countDocuments(filter);
     const items = await CampaignPlan.find(filter)
-      .populate('clientId', 'business.name personal.fullName') // Populate client info
-      .populate('createdBy', 'fullName') // Populate creator info
+      .populate('clientId', 'business.name personal.fullName')
+      .populate('createdBy', 'fullName')
+      .populate('branches')
+      .populate('segments')
+      .populate('competitors')
       .skip(skip)
       .limit(limit)
       .sort({ createdAt: -1 });
@@ -76,6 +163,57 @@ exports.create = async (req, res, next) => {
       });
     }
 
+    // Validate related entities belong to the same client
+    const strategy = value.strategy || {};
+
+    if (strategy.segments && strategy.segments.length > 0) {
+      const segmentsValidation = await validateRelatedEntities(
+        value.clientId,
+        strategy.segments,
+        'segments'
+      );
+      if (!segmentsValidation.valid) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_SEGMENTS',
+            message: segmentsValidation.error,
+          },
+        });
+      }
+    }
+
+    if (strategy.branches && strategy.branches.length > 0) {
+      const branchesValidation = await validateRelatedEntities(
+        value.clientId,
+        strategy.branches,
+        'branches'
+      );
+      if (!branchesValidation.valid) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_BRANCHES',
+            message: branchesValidation.error,
+          },
+        });
+      }
+    }
+
+    if (strategy.competitors && strategy.competitors.length > 0) {
+      const competitorsValidation = await validateRelatedEntities(
+        value.clientId,
+        strategy.competitors,
+        'competitors'
+      );
+      if (!competitorsValidation.valid) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_COMPETITORS',
+            message: competitorsValidation.error,
+          },
+        });
+      }
+    }
+
     const doc = new CampaignPlan({
       ...value,
       createdBy: req.user._id,
@@ -87,6 +225,9 @@ exports.create = async (req, res, next) => {
     // Populate before response
     await doc.populate('clientId', 'business.name personal.fullName');
     await doc.populate('createdBy', 'fullName');
+    await doc.populate('branches');
+    await doc.populate('segments');
+    await doc.populate('competitors');
 
     await logAudit({
       userId: req.user._id,
@@ -98,9 +239,8 @@ exports.create = async (req, res, next) => {
       userAgent: req.get('User-Agent'),
     });
 
-    res.status(201).json({ data: doc }); // Changed from campaign to data
+    res.status(201).json({ data: doc });
   } catch (err) {
-    // Handle invalid ObjectId format
     if (err.name === 'CastError') {
       return res.status(400).json({
         error: {
@@ -117,17 +257,17 @@ exports.get = async (req, res, next) => {
   try {
     const item = await CampaignPlan.findById(req.params.id)
       .populate('clientId', 'business.name personal.fullName personal.email')
-      .populate('createdBy', 'fullName');
+      .populate('createdBy', 'fullName')
+      .populate('branches')
+      .populate('segments')
+      .populate('competitors');
 
     if (!item || item.deleted)
-      // Changed from deletedAt to deleted
-      return res
-        .status(404)
-        .json({
-          error: { code: 'NOT_FOUND', message: 'Campaign plan not found' },
-        });
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Campaign plan not found' },
+      });
 
-    res.json({ data: item }); // Changed from campaign to data
+    res.json({ data: item });
   } catch (err) {
     next(err);
   }
@@ -158,18 +298,70 @@ exports.update = async (req, res, next) => {
       }
     }
 
+    // Validate related entities belong to the same client
+    const strategy = value.strategy || {};
+
+    if (strategy.segments && strategy.segments.length > 0) {
+      const segmentsValidation = await validateRelatedEntities(
+        value.clientId,
+        strategy.segments,
+        'segments'
+      );
+      if (!segmentsValidation.valid) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_SEGMENTS',
+            message: segmentsValidation.error,
+          },
+        });
+      }
+    }
+
+    if (strategy.branches && strategy.branches.length > 0) {
+      const branchesValidation = await validateRelatedEntities(
+        value.clientId,
+        strategy.branches,
+        'branches'
+      );
+      if (!branchesValidation.valid) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_BRANCHES',
+            message: branchesValidation.error,
+          },
+        });
+      }
+    }
+
+    if (strategy.competitors && strategy.competitors.length > 0) {
+      const competitorsValidation = await validateRelatedEntities(
+        value.clientId,
+        strategy.competitors,
+        'competitors'
+      );
+      if (!competitorsValidation.valid) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_COMPETITORS',
+            message: competitorsValidation.error,
+          },
+        });
+      }
+    }
+
     const item = await CampaignPlan.findByIdAndUpdate(req.params.id, value, {
       new: true,
-    }).populate('clientId', 'business.name personal.fullName').populate('createdBy', 'fullName');
-    
+    })
+      .populate('clientId', 'business.name personal.fullName')
+      .populate('createdBy', 'fullName')
+      .populate('branches')
+      .populate('segments')
+      .populate('competitors');
 
     if (!item || item.deleted)
-      // Added deleted check
-      return res
-        .status(404)
-        .json({
-          error: { code: 'NOT_FOUND', message: 'Campaign plan not found' },
-        });
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Campaign plan not found' },
+      });
 
     await logAudit({
       userId: req.user._id,
@@ -181,7 +373,7 @@ exports.update = async (req, res, next) => {
       userAgent: req.get('User-Agent'),
     });
 
-    res.json({ data: item }); // Changed from campaign to data
+    res.json({ data: item });
   } catch (err) {
     if (err.name === 'CastError') {
       return res.status(400).json({
@@ -199,16 +391,14 @@ exports.remove = async (req, res, next) => {
   try {
     const item = await CampaignPlan.findByIdAndUpdate(
       req.params.id,
-      { deleted: true }, // Changed from deletedAt to deleted
+      { deleted: true },
       { new: true }
     );
 
     if (!item)
-      return res
-        .status(404)
-        .json({
-          error: { code: 'NOT_FOUND', message: 'Campaign plan not found' },
-        });
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Campaign plan not found' },
+      });
 
     await logAudit({
       userId: req.user._id,
@@ -225,4 +415,3 @@ exports.remove = async (req, res, next) => {
     next(err);
   }
 };
-
