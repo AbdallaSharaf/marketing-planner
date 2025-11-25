@@ -12,6 +12,7 @@ const createSchema = Joi.object({
   nameAr: Joi.string().required(),
   price: Joi.number().min(0).required(),
   description: Joi.string().allow('', null),
+  descriptionAr: Joi.string().allow('', null),
   items: Joi.array().items(packageItemSchema).default([]),
 });
 
