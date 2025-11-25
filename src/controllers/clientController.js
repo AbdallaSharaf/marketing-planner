@@ -254,14 +254,11 @@ exports.getById = async (req, res, next) => {
         populate: {
           path: 'quotations',
           populate: {
-            path: 'services',
-            populate: {
               path: 'packages',
               populate: {
                 path: 'items',
               },
             },
-          },
         }
       })
       .populate({
@@ -269,13 +266,10 @@ exports.getById = async (req, res, next) => {
         match: { deleted: false },
         options: { sort: { createdAt: -1 } },
         populate: {
-          path: 'services',
-          populate: {
             path: 'packages',
             populate: {
               path: 'items',
             },
-          },
         },
       })
       .populate({
