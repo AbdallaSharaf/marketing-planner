@@ -11,7 +11,7 @@ const SegmentSchema = new mongoose.Schema(
     description: { type: String },
     productName: [{ type: String }],
     ageRange: [{ type: String }],
-    population: [{ type: Number }],
+    population: { type: Number }  ,
     gender: [
       {
         type: String,
