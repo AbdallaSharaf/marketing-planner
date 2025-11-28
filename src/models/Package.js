@@ -8,9 +8,8 @@ const PackageItemSchema = new mongoose.Schema(
       required: true,
     },
     quantity: {
-      type: Number,
+      type: mongoose.Schema.Types.Mixed, // Changed to Mixed to support multiple types
       required: true,
-      min: 1,
       default: 1,
     },
   },

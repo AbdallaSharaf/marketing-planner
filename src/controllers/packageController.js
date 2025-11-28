@@ -4,7 +4,9 @@ const Joi = require('joi');
 
 const packageItemSchema = Joi.object({
   item: Joi.string().required(),
-  quantity: Joi.number().min(1).default(1),
+  quantity: Joi.alternatives()
+    .try(Joi.number().min(0), Joi.string().allow(''), Joi.boolean())
+    .required(),
 });
 
 const createSchema = Joi.object({
