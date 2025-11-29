@@ -13,26 +13,27 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "mongoose": "^8.19.3",
-    "nodemon": "^3.1.10",
-    "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.0",
-    "joi": "^17.9.2",
-    "uuid": "^9.0.0",
     "express-rate-limit": "^6.7.0",
     "helmet": "^7.0.0",
+    "joi": "^17.9.2",
+    "json2csv": "^5.0.7",
+    "jsonwebtoken": "^9.0.0",
+    "mongoose": "^8.19.3",
     "morgan": "^1.10.0",
-    "swagger-ui-express": "^4.6.3",
     "multer": "^1.4.5-lts.1",
-    "json2csv": "^5.0.7"
+    "nodemon": "^3.1.10",
+    "swagger-ui-express": "^4.6.3",
+    "uuid": "^9.0.0",
+    "winston": "^3.18.3"
   },
   "devDependencies": {
     "jest": "^29.0.0",
-    "supertest": "^6.3.3",
-    "mongodb-memory-server": "^8.12.0"
+    "mongodb-memory-server": "^8.12.0",
+    "supertest": "^6.3.3"
   },
   "jest": {
     "testEnvironment": "node",

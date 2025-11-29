@@ -60,11 +60,22 @@ router.post('/register', async (req, res, next) => {
 router.post('/login', async (req, res, next) => {
   try {
     const { error, value } = loginSchema.validate(req.body);
+      req.setTimeout(10000, () => {
+        if (!res.headersSent) {
+          res.status(408).json({
+            error: {
+              code: 'REQUEST_TIMEOUT',
+              message: 'Login request timed out',
+            },
+          });
+        }
+      });
     if (error)
       return res
         .status(400)
         .json({ error: { code: 'VALIDATION_ERROR', message: error.message } });
     const user = await User.findOne({ email: value.email });
+    
     if (!user)
       return res
         .status(401)
