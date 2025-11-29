@@ -84,8 +84,6 @@ router.post('/login', async (req, res, next) => {
             message: 'Invalid credentials',
           },
         });
-    user.lastLogin = new Date();
-    await user.save();
 
     const accessToken = generateAccessToken(user);
     const { tokenId, token: refreshToken } = generateRefreshToken();
