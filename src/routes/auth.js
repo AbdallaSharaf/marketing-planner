@@ -152,6 +152,7 @@ router.post('/refresh', async (req, res, next) => {
       return res.status(401).json({
         error: { code: 'AUTHENTICATION_FAILED', message: 'User not found' },
       });
+    
     const accessToken = generateAccessToken(user);
     const { tokenId, token: newRefreshToken } = generateRefreshToken();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
