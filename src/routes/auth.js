@@ -111,11 +111,9 @@ router.post('/refresh', async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
     if (!refreshToken)
-      return res
-        .status(400)
-        .json({
-          error: { code: 'VALIDATION_ERROR', message: 'Missing refreshToken' },
-        });
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'Missing refreshToken' },
+      });
     let payload;
     try {
       payload = jwt.verify(
@@ -123,38 +121,39 @@ router.post('/refresh', async (req, res, next) => {
         process.env.JWT_REFRESH_SECRET || 'change-refresh-min-32-chars'
       );
     } catch (e) {
-      return res
-        .status(401)
-        .json({
-          error: {
-            code: 'AUTHENTICATION_FAILED',
-            message: 'Invalid refresh token',
-          },
-        });
+      return res.status(401).json({
+        error: {
+          code: 'AUTHENTICATION_FAILED',
+          message: 'Invalid refresh token',
+        },
+      });
     }
     const dbToken = await RefreshToken.findOne({
       tokenId: payload.tokenId,
       revoked: false,
     });
     if (!dbToken)
-      return res
-        .status(401)
-        .json({
-          error: {
-            code: 'AUTHENTICATION_FAILED',
-            message: 'Invalid refresh token',
-          },
-        });
-    // rotate: revoke old and issue new
-    dbToken.revoked = true;
-    await dbToken.save();
+      return res.status(401).json({
+        error: {
+          code: 'AUTHENTICATION_FAILED',
+          message: 'Invalid refresh token',
+        },
+      });
+
+    // 🚨 DELETE THE OLD TOKEN INSTEAD OF JUST REVOKING IT
+    await RefreshToken.deleteOne({ _id: dbToken._id });
+
+    // 🚨 ALSO CLEAN UP ANY EXPIRED TOKENS FOR THIS USER
+    await RefreshToken.deleteMany({
+      user: dbToken.user,
+      expiresAt: { $lt: new Date() },
+    });
+
     const user = await User.findById(dbToken.user);
     if (!user)
-      return res
-        .status(401)
-        .json({
-          error: { code: 'AUTHENTICATION_FAILED', message: 'User not found' },
-        });
+      return res.status(401).json({
+        error: { code: 'AUTHENTICATION_FAILED', message: 'User not found' },
+      });
     const accessToken = generateAccessToken(user);
     const { tokenId, token: newRefreshToken } = generateRefreshToken();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -174,10 +173,8 @@ router.post('/logout', async (req, res, next) => {
           refreshToken,
           process.env.JWT_REFRESH_SECRET || 'change-refresh-min-32-chars'
         );
-        await RefreshToken.updateOne(
-          { tokenId: payload.tokenId },
-          { revoked: true }
-        );
+        // 🚨 DELETE INSTEAD OF JUST REVOKING
+        await RefreshToken.deleteOne({ tokenId: payload.tokenId });
       } catch (_) {
         /* ignore */
       }
