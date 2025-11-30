@@ -1,10 +1,13 @@
 const CampaignPlan = require('../models/CampaignPlan');
 const Client = require('../models/Client');
-const Segment = require('../models/Segment'); // Make sure to import these models
+const Segment = require('../models/Segment');
 const Competitor = require('../models/Competitor');
 const Branch = require('../models/Branch');
+const Package = require('../models/Package'); // Add Package import
 const Joi = require('joi');
 const { logAudit } = require('../utils/audit');
+const { calculateQuotationTotal } = require('../utils/pricing');
+
 
 const createSchema = Joi.object({
   clientId: Joi.string().required(),
@@ -18,7 +21,6 @@ const createSchema = Joi.object({
     })
   ),
   strategy: Joi.object({
-    budget: Joi.number().min(0),
     timeline: Joi.array().items(
       Joi.object({
         timelineStart: Joi.string(),
@@ -39,6 +41,25 @@ const createSchema = Joi.object({
   segments: Joi.array().items(Joi.string()).default([]),
   branches: Joi.array().items(Joi.string()).default([]),
   competitors: Joi.array().items(Joi.string()).default([]),
+  // Added pricing fields
+  packages: Joi.array().items(Joi.string()).default([]),
+  customServices: Joi.array()
+    .items(
+      Joi.object({
+        id: Joi.string(),
+        en: Joi.string(),
+        ar: Joi.string(),
+        price: Joi.number().min(0),
+        discount: Joi.number().min(0).default(0),
+        discountType: Joi.string()
+          .valid('percentage', 'fixed')
+          .default('fixed'),
+      })
+    )
+    .default([]),
+  overriddenTotal: Joi.number().min(0).allow(null),
+  discountValue: Joi.number().min(0).default(0),
+  discountType: Joi.string().valid('percentage', 'fixed').default('percentage'),
 });
 
 // Helper function to validate related entities
@@ -65,7 +86,6 @@ const validateRelatedEntities = async (clientId, entities, entityType) => {
       return { valid: false, error: `Unknown entity type: ${entityType}` };
   }
 
-  // Check if all entities exist and belong to the same client
   const existingEntities = await Model.find({
     _id: { $in: entities },
     deleted: false,
@@ -83,7 +103,6 @@ const validateRelatedEntities = async (clientId, entities, entityType) => {
     };
   }
 
-  // Check if all entities belong to the same client
   const entitiesWithDifferentClient = existingEntities.filter(
     (entity) => entity[fieldName].toString() !== clientId.toString()
   );
@@ -110,13 +129,15 @@ exports.list = async (req, res, next) => {
     const skip = (page - 1) * limit;
     const filter = { deleted: false };
 
-    // Add filtering
     if (req.query.clientId) filter.clientId = req.query.clientId;
     if (req.query.search) {
       filter.$or = [
         { description: { $regex: req.query.search, $options: 'i' } },
         { 'objectives.name': { $regex: req.query.search, $options: 'i' } },
         { 'strategy.description': { $regex: req.query.search, $options: 'i' } },
+        {
+          'strategy.descriptionAr': { $regex: req.query.search, $options: 'i' },
+        },
       ];
     }
 
@@ -127,6 +148,7 @@ exports.list = async (req, res, next) => {
       .populate('branches')
       .populate('segments')
       .populate('competitors')
+      .populate('packages') // Added packages population
       .skip(skip)
       .limit(limit)
       .sort({ createdAt: -1 });
@@ -164,58 +186,101 @@ exports.create = async (req, res, next) => {
     }
 
     // Validate related entities belong to the same client
-    const strategy = value.strategy || {};
+    const segmentsValidation = await validateRelatedEntities(
+      value.clientId,
+      value.segments,
+      'segments'
+    );
+    if (!segmentsValidation.valid) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_SEGMENTS',
+          message: segmentsValidation.error,
+        },
+      });
+    }
 
-    if (strategy.segments && strategy.segments.length > 0) {
-      const segmentsValidation = await validateRelatedEntities(
-        value.clientId,
-        strategy.segments,
-        'segments'
-      );
-      if (!segmentsValidation.valid) {
-        return res.status(400).json({
-          error: {
-            code: 'INVALID_SEGMENTS',
-            message: segmentsValidation.error,
-          },
+    const branchesValidation = await validateRelatedEntities(
+      value.clientId,
+      value.branches,
+      'branches'
+    );
+    if (!branchesValidation.valid) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_BRANCHES',
+          message: branchesValidation.error,
+        },
+      });
+    }
+
+    const competitorsValidation = await validateRelatedEntities(
+      value.clientId,
+      value.competitors,
+      'competitors'
+    );
+    if (!competitorsValidation.valid) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_COMPETITORS',
+          message: competitorsValidation.error,
+        },
+      });
+    }
+
+    // Prepare servicesPricing array with validation (similar to quotation)
+    const servicesPricingArr = [];
+    if (value.packages && value.packages.length) {
+      for (const id of value.packages) {
+        const package = await Package.findOne({
+          _id: id,
+          deleted: false,
+        });
+
+        if (!package) {
+          return res.status(400).json({
+            error: {
+              code: 'INVALID_PACKAGE',
+              message: `Package with ID ${id} not found or has been deleted`,
+            },
+          });
+        }
+
+        servicesPricingArr.push({
+          package: package._id,
+          customPrice: package.price, // Use package price as default
         });
       }
     }
 
-    if (strategy.branches && strategy.branches.length > 0) {
-      const branchesValidation = await validateRelatedEntities(
-        value.clientId,
-        strategy.branches,
-        'branches'
-      );
-      if (!branchesValidation.valid) {
-        return res.status(400).json({
-          error: {
-            code: 'INVALID_BRANCHES',
-            message: branchesValidation.error,
-          },
-        });
-      }
-    }
+    const customServices = value.customServices || [];
+    const totals = calculateQuotationTotal(
+      servicesPricingArr.map((sp) => ({
+        price: sp.customPrice,
+        discount: 0,
+        discountType: 'fixed',
+      })),
+      customServices,
+      value.discountValue,
+      value.discountType
+    );
 
-    if (strategy.competitors && strategy.competitors.length > 0) {
-      const competitorsValidation = await validateRelatedEntities(
-        value.clientId,
-        strategy.competitors,
-        'competitors'
-      );
-      if (!competitorsValidation.valid) {
-        return res.status(400).json({
-          error: {
-            code: 'INVALID_COMPETITORS',
-            message: competitorsValidation.error,
-          },
-        });
-      }
-    }
+    // Determine final total - use overriddenTotal if provided, otherwise use calculated total
+    const finalTotal =
+      value.overriddenTotal !== undefined && value.overriddenTotal !== null
+        ? value.overriddenTotal
+        : totals.total;
+
+    const isTotalOverridden =
+      value.overriddenTotal !== undefined && value.overriddenTotal !== null;
 
     const doc = new CampaignPlan({
       ...value,
+      servicesPricing: servicesPricingArr,
+      subtotal: totals.subtotal,
+      total: finalTotal,
+      overriddenTotal: value.overriddenTotal,
+      isTotalOverridden: isTotalOverridden,
       createdBy: req.user._id,
       deleted: false,
     });
@@ -228,6 +293,8 @@ exports.create = async (req, res, next) => {
     await doc.populate('branches');
     await doc.populate('segments');
     await doc.populate('competitors');
+    await doc.populate('packages');
+    await doc.populate('servicesPricing.package');
 
     await logAudit({
       userId: req.user._id,
@@ -260,7 +327,9 @@ exports.get = async (req, res, next) => {
       .populate('createdBy', 'fullName')
       .populate('branches')
       .populate('segments')
-      .populate('competitors');
+      .populate('competitors')
+      .populate('packages') // Added packages population
+      .populate('servicesPricing.package'); // Added servicesPricing population
 
     if (!item || item.deleted)
       return res.status(404).json({
@@ -299,64 +368,117 @@ exports.update = async (req, res, next) => {
     }
 
     // Validate related entities belong to the same client
-    const strategy = value.strategy || {};
+    const segmentsValidation = await validateRelatedEntities(
+      value.clientId,
+      value.segments,
+      'segments'
+    );
+    if (!segmentsValidation.valid) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_SEGMENTS',
+          message: segmentsValidation.error,
+        },
+      });
+    }
 
-    if (strategy.segments && strategy.segments.length > 0) {
-      const segmentsValidation = await validateRelatedEntities(
-        value.clientId,
-        strategy.segments,
-        'segments'
-      );
-      if (!segmentsValidation.valid) {
-        return res.status(400).json({
-          error: {
-            code: 'INVALID_SEGMENTS',
-            message: segmentsValidation.error,
-          },
+    const branchesValidation = await validateRelatedEntities(
+      value.clientId,
+      value.branches,
+      'branches'
+    );
+    if (!branchesValidation.valid) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_BRANCHES',
+          message: branchesValidation.error,
+        },
+      });
+    }
+
+    const competitorsValidation = await validateRelatedEntities(
+      value.clientId,
+      value.competitors,
+      'competitors'
+    );
+    if (!competitorsValidation.valid) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_COMPETITORS',
+          message: competitorsValidation.error,
+        },
+      });
+    }
+
+    // Prepare servicesPricing array with validation (similar to quotation)
+    const servicesPricingArr = [];
+    if (value.packages && value.packages.length) {
+      for (const id of value.packages) {
+        const package = await Package.findOne({
+          _id: id,
+          deleted: false,
+        });
+
+        if (!package) {
+          return res.status(400).json({
+            error: {
+              code: 'INVALID_PACKAGE',
+              message: `Package with ID ${id} not found or has been deleted`,
+            },
+          });
+        }
+
+        servicesPricingArr.push({
+          package: package._id,
+          customPrice: package.price, // Use package price as default
         });
       }
     }
 
-    if (strategy.branches && strategy.branches.length > 0) {
-      const branchesValidation = await validateRelatedEntities(
-        value.clientId,
-        strategy.branches,
-        'branches'
-      );
-      if (!branchesValidation.valid) {
-        return res.status(400).json({
-          error: {
-            code: 'INVALID_BRANCHES',
-            message: branchesValidation.error,
-          },
-        });
-      }
-    }
+    const customServices = value.customServices || [];
+    const totals = calculateQuotationTotal(
+      servicesPricingArr.map((sp) => ({
+        price: sp.customPrice,
+        discount: 0,
+        discountType: 'fixed',
+      })),
+      customServices,
+      value.discountValue,
+      value.discountType
+    );
 
-    if (strategy.competitors && strategy.competitors.length > 0) {
-      const competitorsValidation = await validateRelatedEntities(
-        value.clientId,
-        strategy.competitors,
-        'competitors'
-      );
-      if (!competitorsValidation.valid) {
-        return res.status(400).json({
-          error: {
-            code: 'INVALID_COMPETITORS',
-            message: competitorsValidation.error,
-          },
-        });
-      }
-    }
+    // Determine final total - use overriddenTotal if provided, otherwise use calculated total
+    const finalTotal =
+      value.overriddenTotal !== undefined && value.overriddenTotal !== null
+        ? value.overriddenTotal
+        : totals.total;
 
-    const item = await CampaignPlan.findByIdAndUpdate(req.params.id, value, {
-      new: true,
-    })
+    const isTotalOverridden =
+      value.overriddenTotal !== undefined && value.overriddenTotal !== null;
+
+    const updateData = {
+      ...value,
+      servicesPricing: servicesPricingArr,
+      subtotal: totals.subtotal,
+      total: finalTotal,
+      overriddenTotal: value.overriddenTotal,
+      isTotalOverridden: isTotalOverridden,
+    };
+
+    const item = await CampaignPlan.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      {
+        new: true,
+      }
+    )
       .populate('clientId', 'business.name personal.fullName')
       .populate('createdBy', 'fullName')
       .populate('branches')
       .populate('segments')
-      .populate('competitors');
+      .populate('competitors')
+      .populate('packages')
+      .populate('servicesPricing.package');
 
     if (!item || item.deleted)
       return res.status(404).json({

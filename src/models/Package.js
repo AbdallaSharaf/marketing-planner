@@ -12,6 +12,7 @@ const PackageItemSchema = new mongoose.Schema(
       required: true,
       default: 1,
     },
+    note: { type: String },
   },
   { _id: false }
 );

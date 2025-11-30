@@ -1,5 +1,25 @@
 const mongoose = require('mongoose');
 
+const CustomServiceSchema = new mongoose.Schema(
+  {
+    id: String,
+    en: String,
+    ar: String,
+    price: Number,
+    discount: Number,
+    discountType: String,
+  },
+  { _id: false }
+);
+
+const ServicePricingSchema = new mongoose.Schema(
+  {
+    package: { type: mongoose.Schema.Types.ObjectId, ref: 'Package' },
+    customPrice: Number,
+  },
+  { _id: false }
+);
+
 const CampaignPlanSchema = new mongoose.Schema(
   {
     planId: {
@@ -32,7 +52,7 @@ const CampaignPlanSchema = new mongoose.Schema(
       },
     ],
     strategy: {
-      budget: { type: Number, min: 0 },
+      // Removed budget field
       timeline: [
         {
           timelineStart: { type: String },
@@ -44,6 +64,20 @@ const CampaignPlanSchema = new mongoose.Schema(
       description: { type: String },
       descriptionAr: { type: String },
     },
+    // Added pricing fields similar to quotation
+    servicesPricing: { type: [ServicePricingSchema], default: [] },
+    packages: { type: [mongoose.Schema.Types.ObjectId], ref: 'Package' },
+    customServices: { type: [CustomServiceSchema], default: [] },
+    subtotal: { type: Number, default: 0 },
+    discountValue: { type: Number, default: 0 },
+    discountType: {
+      type: String,
+      enum: ['percentage', 'fixed'],
+      default: 'percentage',
+    },
+    total: { type: Number, default: 0 },
+    overriddenTotal: { type: Number, default: null },
+    isTotalOverridden: { type: Boolean, default: false },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

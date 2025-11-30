@@ -22,6 +22,7 @@ exports.list = async (req, res, next) => {
         { name: { $regex: req.query.search, $options: 'i' } },
         { ar: { $regex: req.query.search, $options: 'i' } },
         { description: { $regex: req.query.search, $options: 'i' } },
+        { descriptionAr: { $regex: req.query.search, $options: 'i' } },
       ];
     }
 

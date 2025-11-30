@@ -7,6 +7,7 @@ const packageItemSchema = Joi.object({
   quantity: Joi.alternatives()
     .try(Joi.number().min(0), Joi.string().allow(''), Joi.boolean())
     .required(),
+  note: Joi.string().allow('', null),
 });
 
 const createSchema = Joi.object({
@@ -31,6 +32,7 @@ exports.list = async function (req, res, next) {
         { nameEn: { $regex: req.query.search, $options: 'i' } },
         { nameAr: { $regex: req.query.search, $options: 'i' } },
         { description: { $regex: req.query.search, $options: 'i' } },
+        { descriptionAr: { $regex: req.query.search, $options: 'i' } },
       ];
     }
 
