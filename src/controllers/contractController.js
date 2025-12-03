@@ -148,13 +148,10 @@ exports.list = async (req, res, next) => {
       .populate({
         path: 'quotationId',
         populate: {
-          path: 'services',
+          path: 'packages',
           populate: {
-            path: 'packages',
-            populate: {
-              path: 'items'
-            },
-          }
+            path: 'items',
+          },
         },
       })
       .populate('createdBy', 'fullName email')
@@ -260,12 +257,9 @@ exports.create = async (req, res, next) => {
     await contract.populate({
       path: 'quotationId',
       populate: {
-        path: 'services',
+        path: 'packages',
         populate: {
-          path: 'packages',
-          populate: {
-            path: 'items',
-          },
+          path: 'items',
         },
       },
     });
@@ -307,12 +301,9 @@ exports.get = async (req, res, next) => {
       .populate({
         path: 'quotationId',
         populate: {
-          path: 'services',
+          path: 'packages',
           populate: {
-            path: 'packages',
-            populate: {
-              path: 'items',
-            },
+            path: 'items',
           },
         },
       })
@@ -390,12 +381,9 @@ exports.update = async (req, res, next) => {
       .populate({
         path: 'quotationId',
         populate: {
-          path: 'services',
+          path: 'packages',
           populate: {
-            path: 'packages',
-            populate: {
-              path: 'items',
-            },
+            path: 'items',
           },
         },
       });
@@ -466,12 +454,9 @@ exports.sign = async (req, res, next) => {
       .populate({
         path: 'quotationId',
         populate: {
-          path: 'services',
+          path: 'packages',
           populate: {
-            path: 'packages',
-            populate: {
-              path: 'items',
-            },
+            path: 'items',
           },
         },
       });
@@ -497,12 +482,9 @@ exports.activate = async (req, res, next) => {
       .populate({
         path: 'quotationId',
         populate: {
-          path: 'services',
+          path: 'packages',
           populate: {
-            path: 'packages',
-            populate: {
-              path: 'items',
-            },
+            path: 'items',
           },
         },
       });
@@ -528,12 +510,9 @@ exports.complete = async (req, res, next) => {
       .populate({
         path: 'quotationId',
         populate: {
-          path: 'services',
+          path: 'packages',
           populate: {
-            path: 'packages',
-            populate: {
-              path: 'items',
-            },
+            path: 'items',
           },
         },
       });
@@ -560,12 +539,9 @@ exports.cancel = async (req, res, next) => {
       .populate({
         path: 'quotationId',
         populate: {
-          path: 'services',
+          path: 'packages',
           populate: {
-            path: 'packages',
-            populate: {
-              path: 'items',
-            },
+            path: 'items',
           },
         },
       });
@@ -612,12 +588,9 @@ exports.renew = async (req, res, next) => {
       .populate({
         path: 'quotationId',
         populate: {
-          path: 'services',
+          path: 'packages',
           populate: {
-            path: 'packages',
-            populate: {
-              path: 'items',
-            },
+            path: 'items',
           },
         },
       });
