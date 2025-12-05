@@ -90,6 +90,7 @@ exports.create = async function (req, res, next) {
           validItems.push({
             item: item._id,
             quantity: itemData.quantity || 1,
+            note: itemData.note,
           });
         } else {
           invalidItems.push(itemData.item);
@@ -176,6 +177,7 @@ exports.update = async function (req, res, next) {
           validItems.push({
             item: item._id,
             quantity: itemData.quantity || 1,
+            note: itemData.note,
           });
         } else {
           invalidItems.push(itemData.item);
