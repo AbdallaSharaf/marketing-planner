@@ -24,6 +24,7 @@ const dashboardRoutes = require('./routes/dashboard');
 const analyticsRoutes = require('./routes/analytics');
 const uploadsRoutes = require('./routes/uploads');
 const errorHandler = require('./middleware/errorHandler');
+const contractTermsRoutes = require('./routes/contractTerms');
 
 const app = express();
 
@@ -44,6 +45,7 @@ app.use(`/api/${apiVersion}/clients`, clientRoutes);
 app.use(`/api/${apiVersion}/services`, servicesRoutes);
 app.use(`/api/${apiVersion}/packages`, packagesRoutes);
 app.use(`/api/${apiVersion}/campaigns`, campaignsRoutes);
+app.use(`/api/${apiVersion}/contract-terms`, contractTermsRoutes);
 app.use(`/api/${apiVersion}/quotations`, quotationsRoutes);
 app.use(`/api/${apiVersion}/contracts`, contractsRoutes);
 app.use(`/api/${apiVersion}/reports`, reportsRoutes);

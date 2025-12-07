@@ -274,11 +274,11 @@ exports.create = async (req, res, next) => {
     }
 
     // Generate contract number
-    const contractNumber = await generateContractNumber();
+    const contractNo = await contractNumber();
 
     const contract = new Contract({
       ...value,
-      contractNumber,
+      contractNumber: contractNo,
       terms: validatedTerms,
       createdBy: req.user._id,
       deleted: false,

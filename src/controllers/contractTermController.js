@@ -11,10 +11,6 @@ const createSchema = Joi.object({
 
 exports.list = async (req, res, next) => {
   try {
-    const page = parseInt(req.query.page || '1', 10);
-    const limit = Math.min(100, parseInt(req.query.limit || '20', 10));
-    const skip = (page - 1) * limit;
-
     const filter = { deleted: false };
     if (req.query.search) {
         filter.$or = [
@@ -27,19 +23,12 @@ exports.list = async (req, res, next) => {
 
     const total = await ContractTerm.countDocuments(filter);
     const terms = await ContractTerm.find(filter)
-      .skip(skip)
-      .limit(limit)
       .sort({ createdAt: -1 });
 
     res.json({
       data: terms,
       meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-        hasNextPage: page < Math.ceil(total / limit),
-        hasPrevPage: page > 1,
+        total
       },
     });
   } catch (err) {
