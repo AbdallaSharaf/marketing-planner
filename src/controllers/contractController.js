@@ -3,11 +3,22 @@ const Joi = require('joi');
 const { logAudit } = require('../utils/audit');
 const Client = require('../models/Client'); // Import Client model
 const { contractNumber } = require('../utils/identifier');
+const ContractTerm = require('../models/ContractTerm');
+
+const contractTermItemSchema = Joi.object({
+  term: Joi.string().allow(null), // Optional for custom terms
+  customKey: Joi.string().allow('', null),
+  customKeyAr: Joi.string().allow('', null),
+  customValue: Joi.string().allow('', null),
+  customValueAr: Joi.string().allow('', null),
+  order: Joi.number().min(0).required(),
+  isCustom: Joi.boolean().default(false),
+});
 
 const createSchema = Joi.object({
   clientId: Joi.string().required(),
   quotationId: Joi.string().allow(null),
-  contractTerms: Joi.array().items(Joi.string()).default([]),
+  terms: Joi.array().items(contractTermItemSchema).default([]),
   contractBody: Joi.string().allow('', null),
   startDate: Joi.date().iso(),
   endDate: Joi.date().iso(),
@@ -146,6 +157,9 @@ exports.list = async (req, res, next) => {
     const contracts = await Contract.find(filter)
       .populate('clientId', 'business.name personal.fullName') // Selective population
       .populate({
+        path: 'terms.term',
+      })
+      .populate({
         path: 'quotationId',
         populate: {
           path: 'packages',
@@ -198,96 +212,275 @@ exports.create = async (req, res, next) => {
       });
     }
 
-    let contractValue = value.value || 0;
-    let quotationData = null;
-    let valueSource = 'manual';
+    // Validate and process terms
+    const validatedTerms = [];
 
-    // If quotation is provided, validate it exists
-    if (value.quotationId) {
-      const Quotation = require('../models/Quotation');
-      quotationData = await Quotation.findOne({
-        _id: value.quotationId,
-        deleted: false,
-      });
-
-      if (!quotationData) {
+    if (value.terms && value.terms.length) {
+      // Check for duplicate order numbers
+      const orders = value.terms.map((t) => t.order);
+      const uniqueOrders = [...new Set(orders)];
+      if (orders.length !== uniqueOrders.length) {
         return res.status(400).json({
           error: {
-            code: 'INVALID_QUOTATION',
-            message: 'Quotation not found or has been deleted',
+            code: 'DUPLICATE_ORDERS',
+            message: 'Duplicate order numbers found in terms',
           },
         });
       }
 
-      // Use manual value if provided, otherwise use quotation total
-      if (!value.value && value.value !== 0) {
-        contractValue = quotationData.total;
-        valueSource = 'quotation';
-      }
+      for (const termItem of value.terms) {
+        if (termItem.term && !termItem.isCustom) {
+          // Validate referenced term exists
+          const term = await ContractTerm.findOne({
+            _id: termItem.term,
+            deleted: false,
+          });
 
-      // Update quotation status to "converted" regardless of value source
-      quotationData.status = 'converted';
-      await quotationData.save();
+          if (!term) {
+            return res.status(400).json({
+              error: {
+                code: 'INVALID_TERM',
+                message: `Contract term with ID ${termItem.term} not found or deleted`,
+              },
+            });
+          }
+
+          validatedTerms.push({
+            term: term._id,
+            order: termItem.order,
+            isCustom: false,
+          });
+        } else if (termItem.isCustom) {
+          // Validate custom term has required fields
+          if (!termItem.customKey || !termItem.customKeyAr) {
+            return res.status(400).json({
+              error: {
+                code: 'INVALID_CUSTOM_TERM',
+                message: 'Custom terms must have both key and keyAr fields',
+              },
+            });
+          }
+
+          validatedTerms.push({
+            customKey: termItem.customKey,
+            customKeyAr: termItem.customKeyAr,
+            customValue: termItem.customValue || '',
+            customValueAr: termItem.customValueAr || '',
+            order: termItem.order,
+            isCustom: true,
+          });
+        }
+      }
     }
 
-    // Date validation
-    if (new Date(value.endDate) <= new Date(value.startDate))
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'endDate must be after startDate',
-        },
-      });
+    // Generate contract number
+    const contractNumber = await generateContractNumber();
 
     const contract = new Contract({
       ...value,
-      contractNumber: contractNumber(),
-      value: contractValue, // Manual value takes priority
+      contractNumber,
+      terms: validatedTerms,
       createdBy: req.user._id,
       deleted: false,
     });
 
     await contract.save();
 
-    // Populate before returning
+    // Populate referenced terms (custom terms don't need population)
+    await contract.populate({
+      path: 'terms.term',
+      match: { deleted: false },
+    });
+
     await contract.populate(
       'clientId',
       'business.name personal.fullName personal.email'
     );
-    await contract.populate({
-      path: 'quotationId',
-      populate: {
-        path: 'packages',
-        populate: {
-          path: 'items',
-        },
-      },
-    });
+    await contract.populate('quotationId');
 
     await logAudit({
       userId: req.user._id,
       action: 'create',
       entityType: 'Contract',
       entityId: contract._id,
-      changes: {
-        ...contract.toObject(),
-        valueSource: valueSource,
-        originalQuotationTotal: quotationData ? quotationData.total : undefined,
-      },
+      changes: contract.toObject(),
       ipAddress: req.ip,
       userAgent: req.get('User-Agent'),
     });
 
-    res.status(201).json({
+    res.status(201).json({ contract });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// New endpoint to reorder terms
+exports.reorderTerms = async (req, res, next) => {
+  try {
+    const { termsOrder } = req.body;
+
+    const orderSchema = Joi.array().items(
+      Joi.object({
+        id: Joi.string().required(), // This is the _id of the term item in the contract.terms array
+        order: Joi.number().min(0).required(),
+      })
+    );
+
+    const { error, value } = orderSchema.validate(termsOrder);
+    if (error)
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: error.message },
+      });
+
+    // Get the contract
+    const contract = await Contract.findById(req.params.id);
+    if (!contract || contract.deleted)
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Contract not found' },
+      });
+
+    // Create a map of new orders
+    const orderMap = new Map();
+    for (const item of value) {
+      orderMap.set(item.id, item.order);
+    }
+
+    // Update term orders
+    let updated = false;
+    for (const termItem of contract.terms) {
+      if (orderMap.has(termItem._id.toString())) {
+        termItem.order = orderMap.get(termItem._id.toString());
+        updated = true;
+      }
+    }
+
+    if (!updated) {
+      return res.status(400).json({
+        error: {
+          code: 'NO_TERMS_UPDATED',
+          message: 'No matching terms found to update',
+        },
+      });
+    }
+
+    // Sort terms by order and save
+    contract.terms.sort((a, b) => a.order - b.order);
+    await contract.save();
+
+    // Populate for response
+    await contract.populate({
+      path: 'terms.term',
+      match: { deleted: false },
+    });
+
+    await logAudit({
+      userId: req.user._id,
+      action: 'reorder_terms',
+      entityType: 'Contract',
+      entityId: contract._id,
+      changes: { termsOrder: value },
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+    });
+
+    res.json({
       contract,
       meta: {
-        valueSource: valueSource,
-        quotationTotal: quotationData ? quotationData.total : undefined,
-        note:
-          valueSource === 'quotation'
-            ? 'Value taken from quotation'
-            : 'Manual value used',
+        reorderedCount: value.length,
       },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// New endpoint to add term to contract
+exports.addTerm = async (req, res, next) => {
+  try {
+    const termItemSchema = Joi.object({
+      term: Joi.string().allow(null),
+      customKey: Joi.string().allow('', null),
+      customKeyAr: Joi.string().allow('', null),
+      customValue: Joi.string().allow('', null),
+      customValueAr: Joi.string().allow('', null),
+      isCustom: Joi.boolean().default(false),
+    });
+
+    const { error, value } = termItemSchema.validate(req.body);
+    if (error)
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: error.message },
+      });
+
+    const contract = await Contract.findById(req.params.id);
+    if (!contract || contract.deleted)
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Contract not found' },
+      });
+
+    let newTermItem;
+
+    if (value.term && !value.isCustom) {
+      const term = await ContractTerm.findOne({
+        _id: value.term,
+        deleted: false,
+      });
+
+      if (!term) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_TERM',
+            message: `Contract term not found or deleted`,
+          },
+        });
+      }
+
+      newTermItem = {
+        term: term._id,
+        order: contract.terms.length, // Add at the end
+        isCustom: false,
+      };
+    } else if (value.isCustom) {
+      if (!value.customKey || !value.customKeyAr) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_CUSTOM_TERM',
+            message: 'Custom terms must have both key and keyAr fields',
+          },
+        });
+      }
+
+      newTermItem = {
+        customKey: value.customKey,
+        customKeyAr: value.customKeyAr,
+        customValue: value.customValue || '',
+        customValueAr: value.customValueAr || '',
+        order: contract.terms.length,
+        isCustom: true,
+      };
+    } else {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_TERM_TYPE',
+          message: 'Must specify either a term reference or custom term data',
+        },
+      });
+    }
+
+    contract.terms.push(newTermItem);
+    await contract.save();
+
+    // Populate the new term
+    if (newTermItem.term) {
+      await contract.populate({
+        path: 'terms.term',
+        match: { deleted: false },
+      });
+    }
+
+    res.status(201).json({
+      contract,
+      addedTerm: contract.terms[contract.terms.length - 1],
     });
   } catch (err) {
     next(err);
@@ -306,6 +499,10 @@ exports.get = async (req, res, next) => {
             path: 'items',
           },
         },
+      })
+      .populate({
+        path: 'terms.term',
+        match: { deleted: false },
       })
       .populate('createdBy', 'fullName email');
 
@@ -378,6 +575,8 @@ exports.update = async (req, res, next) => {
       new: true,
     })
       .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
+      .populate('createdBy', 'fullName email')
+      .populate('terms.term')
       .populate({
         path: 'quotationId',
         populate: {
@@ -451,6 +650,8 @@ exports.sign = async (req, res, next) => {
       { new: true }
     )
       .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
+      .populate('createdBy', 'fullName email')
+      .populate('terms.term')
       .populate({
         path: 'quotationId',
         populate: {
@@ -479,6 +680,8 @@ exports.activate = async (req, res, next) => {
       { new: true }
     )
       .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
+      .populate('createdBy', 'fullName email')
+      .populate('terms.term')
       .populate({
         path: 'quotationId',
         populate: {
@@ -507,6 +710,8 @@ exports.complete = async (req, res, next) => {
       { new: true }
     )
       .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
+      .populate('createdBy', 'fullName email')
+      .populate('terms.term')
       .populate({
         path: 'quotationId',
         populate: {
@@ -536,6 +741,8 @@ exports.cancel = async (req, res, next) => {
       { new: true }
     )
       .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
+      .populate('createdBy', 'fullName email')
+      .populate('terms.term')
       .populate({
         path: 'quotationId',
         populate: {
@@ -585,6 +792,8 @@ exports.renew = async (req, res, next) => {
       { new: true }
     )
       .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
+      .populate('createdBy', 'fullName email')
+      .populate('terms.term')
       .populate({
         path: 'quotationId',
         populate: {

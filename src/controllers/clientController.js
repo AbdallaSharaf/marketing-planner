@@ -258,8 +258,15 @@ exports.getById = async (req, res, next) => {
               populate: {
                 path: 'items',
               },
-            },
-        }
+          },
+        },
+        populate: {
+          path: 'createdBy',
+          select: 'fullName',
+        },
+        populate: {
+          path: 'terms.term',
+        },
       })
       .populate({
         path: 'quotations',
