@@ -97,8 +97,6 @@ const ContractSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Index for ordering
-ContractSchema.index({ clientId: 1, status: 1 });
 ContractSchema.index({ 'terms.term': 1 });
 
 module.exports = mongoose.model('Contract', ContractSchema);

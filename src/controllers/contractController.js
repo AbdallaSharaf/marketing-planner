@@ -16,7 +16,10 @@ const contractTermItemSchema = Joi.object({
 });
 
 const createSchema = Joi.object({
-  clientId: Joi.string().required(),
+  clientId: Joi.string().allow(null, ''),
+  clientName: Joi.string().allow('', null),
+  clientNameAr: Joi.string().allow('', null),
+  contractBodyAr: Joi.string().allow('', null),
   quotationId: Joi.string().allow(null),
   terms: Joi.array().items(contractTermItemSchema).default([]),
   contractBody: Joi.string().allow('', null),
@@ -29,7 +32,21 @@ const createSchema = Joi.object({
     .default('draft'),
   signedDate: Joi.date().iso().allow(null),
   note: Joi.string().allow('', null),
-});
+})
+  .custom((value, helpers) => {
+    // Custom validation to ensure either clientId OR clientName/clientNameAr
+    if (!value.clientId && (!value.clientName || !value.clientNameAr)) {
+      return helpers.error('client.required', {
+        message:
+          'Either clientId or both clientName and clientNameAr are required',
+      });
+    }
+    return value;
+  })
+  .messages({
+    'client.required':
+      'Either clientId or both clientName and clientNameAr are required',
+  });
 
 exports.list = async (req, res, next) => {
   try {
@@ -197,20 +214,71 @@ exports.create = async (req, res, next) => {
         error: { code: 'VALIDATION_ERROR', message: error.message },
       });
 
-    // Validate client exists
-    const clientExists = await Client.findOne({
-      _id: value.clientId,
-      deleted: false,
-    });
+    let clientId = null;
+    let clientName = null;
+    let clientNameAr = null;
 
-    if (!clientExists) {
+    // Handle client identification - either clientId OR clientName/clientNameAr
+    if (value.clientId) {
+      // Validate client exists if clientId is provided
+      const clientExists = await Client.findOne({
+        _id: value.clientId,
+        deleted: false,
+      });
+
+      if (!clientExists) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_CLIENT',
+            message: 'Client not found or has been deleted',
+          },
+        });
+      }
+      clientId = value.clientId;
+    } else if (value.clientName || value.clientNameAr) {
+      // Use clientName/clientNameAr for non-existing clients
+      clientName = value.clientName;
+      clientNameAr = value.clientNameAr;
+    } else {
+      // Neither clientId nor clientName provided
       return res.status(400).json({
         error: {
-          code: 'INVALID_CLIENT',
-          message: 'Client not found or has been deleted',
+          code: 'CLIENT_REQUIRED',
+          message: 'Either clientId or clientName/clientNameAr is required',
         },
       });
     }
+
+    // Validate quotation exists if provided
+    if (value.quotationId) {
+      const Quotation = require('../models/Quotation');
+      const quotationExists = await Quotation.findOne({
+        _id: value.quotationId,
+        deleted: false,
+      });
+
+      if (!quotationExists) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_QUOTATION',
+            message: 'Quotation not found or has been deleted',
+          },
+        });
+      }
+    }
+
+    // Date validation
+    if (
+      value.startDate &&
+      value.endDate &&
+      new Date(value.endDate) <= new Date(value.startDate)
+    )
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'endDate must be after startDate',
+        },
+      });
 
     // Validate and process terms
     const validatedTerms = [];
@@ -278,6 +346,9 @@ exports.create = async (req, res, next) => {
 
     const contract = new Contract({
       ...value,
+      clientId: clientId,
+      clientName: clientName,
+      clientNameAr: clientNameAr,
       contractNumber: contractNo,
       terms: validatedTerms,
       createdBy: req.user._id,
@@ -292,10 +363,13 @@ exports.create = async (req, res, next) => {
       match: { deleted: false },
     });
 
-    await contract.populate(
-      'clientId',
-      'business.name personal.fullName personal.email'
-    );
+    // Populate client if clientId exists
+    if (clientId) {
+      await contract.populate(
+        'clientId',
+        'business.name personal.fullName personal.email'
+      );
+    }
     await contract.populate('quotationId');
 
     await logAudit({
@@ -309,6 +383,208 @@ exports.create = async (req, res, next) => {
     });
 
     res.status(201).json({ contract });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.update = async (req, res, next) => {
+  try {
+    const { error, value } = createSchema.validate(req.body);
+    if (error)
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: error.message },
+      });
+
+    // Get existing contract to preserve current values
+    const existingContract = await Contract.findById(req.params.id);
+    if (!existingContract || existingContract.deleted)
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Contract not found' },
+      });
+
+    let clientId = existingContract.clientId;
+    let clientName = existingContract.clientName;
+    let clientNameAr = existingContract.clientNameAr;
+
+    // Handle client identification updates
+    if (
+      value.clientId !== undefined ||
+      value.clientName !== undefined ||
+      value.clientNameAr !== undefined
+    ) {
+      // Clear all client fields first if any client-related field is being updated
+      if (value.clientId === null || value.clientId === '') {
+        clientId = null;
+      } else if (value.clientId) {
+        // Validate client exists if clientId is provided
+        const clientExists = await Client.findOne({
+          _id: value.clientId,
+          deleted: false,
+        });
+
+        if (!clientExists) {
+          return res.status(400).json({
+            error: {
+              code: 'INVALID_CLIENT',
+              message: 'Client not found or has been deleted',
+            },
+          });
+        }
+        clientId = value.clientId;
+        clientName = null; // Clear clientName if clientId is set
+        clientNameAr = null; // Clear clientNameAr if clientId is set
+      }
+
+      if (value.clientName !== undefined || value.clientNameAr !== undefined) {
+        clientName =
+          value.clientName !== undefined ? value.clientName : clientName;
+        clientNameAr =
+          value.clientNameAr !== undefined ? value.clientNameAr : clientNameAr;
+        // If setting clientName/clientNameAr and no clientId provided, clear clientId
+        if (
+          value.clientId === undefined &&
+          (value.clientName !== undefined || value.clientNameAr !== undefined)
+        ) {
+          clientId = null;
+        }
+      }
+    }
+
+    // Validate quotation exists if provided
+    if (value.quotationId !== undefined) {
+      if (value.quotationId) {
+        const Quotation = require('../models/Quotation');
+        const quotationExists = await Quotation.findOne({
+          _id: value.quotationId,
+          deleted: false,
+        });
+
+        if (!quotationExists) {
+          return res.status(400).json({
+            error: {
+              code: 'INVALID_QUOTATION',
+              message: 'Quotation not found or has been deleted',
+            },
+          });
+        }
+      }
+    }
+
+    // Date validation
+    if (
+      value.startDate &&
+      value.endDate &&
+      new Date(value.endDate) <= new Date(value.startDate)
+    )
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'endDate must be after startDate',
+        },
+      });
+
+    // Prepare updates
+    const updates = { ...value };
+    updates.clientId = clientId;
+    updates.clientName = clientName;
+    updates.clientNameAr = clientNameAr;
+
+    // Validate and update terms if being updated
+    if (updates.terms) {
+      const validatedTerms = [];
+
+      // Check for duplicate order numbers
+      const orders = updates.terms.map((t) => t.order);
+      const uniqueOrders = [...new Set(orders)];
+      if (orders.length !== uniqueOrders.length) {
+        return res.status(400).json({
+          error: {
+            code: 'DUPLICATE_ORDERS',
+            message: 'Duplicate order numbers found in terms',
+          },
+        });
+      }
+
+      for (const termItem of updates.terms) {
+        if (termItem.term && !termItem.isCustom) {
+          // Validate referenced term exists
+          const term = await ContractTerm.findOne({
+            _id: termItem.term,
+            deleted: false,
+          });
+
+          if (!term) {
+            return res.status(400).json({
+              error: {
+                code: 'INVALID_TERM',
+                message: `Contract term with ID ${termItem.term} not found or deleted`,
+              },
+            });
+          }
+
+          validatedTerms.push({
+            term: term._id,
+            order: termItem.order,
+            isCustom: false,
+          });
+        } else if (termItem.isCustom) {
+          // Validate custom term has required fields
+          if (!termItem.customKey || !termItem.customKeyAr) {
+            return res.status(400).json({
+              error: {
+                code: 'INVALID_CUSTOM_TERM',
+                message: 'Custom terms must have both key and keyAr fields',
+              },
+            });
+          }
+
+          validatedTerms.push({
+            customKey: termItem.customKey,
+            customKeyAr: termItem.customKeyAr,
+            customValue: termItem.customValue || '',
+            customValueAr: termItem.customValueAr || '',
+            order: termItem.order,
+            isCustom: true,
+          });
+        }
+      }
+
+      updates.terms = validatedTerms;
+    }
+
+    const contract = await Contract.findByIdAndUpdate(req.params.id, updates, {
+      new: true,
+    })
+      .populate('clientId', 'business.name personal.fullName personal.email')
+      .populate('createdBy', 'fullName email')
+      .populate('terms.term')
+      .populate({
+        path: 'quotationId',
+        populate: {
+          path: 'packages',
+          populate: {
+            path: 'items',
+          },
+        },
+      });
+
+    if (!contract)
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Contract not found' },
+      });
+
+    await logAudit({
+      userId: req.user._id,
+      action: 'update',
+      entityType: 'Contract',
+      entityId: contract._id,
+      changes: updates,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+    });
+
+    res.json({ data: contract });
   } catch (err) {
     next(err);
   }
@@ -510,96 +786,6 @@ exports.get = async (req, res, next) => {
       return res.status(404).json({
         error: { code: 'NOT_FOUND', message: 'Contract not found' },
       });
-
-    res.json({ data: contract });
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.update = async (req, res, next) => {
-  try {
-    const { error, value } = createSchema.validate(req.body);
-    if (error)
-      return res.status(400).json({
-        error: { code: 'VALIDATION_ERROR', message: error.message },
-      });
-
-    // Validate client exists
-    const clientExists = await Client.findOne({
-      _id: value.clientId,
-      deleted: false,
-    });
-
-    if (!clientExists) {
-      return res.status(400).json({
-        error: {
-          code: 'INVALID_CLIENT',
-          message: 'Client not found or has been deleted',
-        },
-      });
-    }
-
-    // Validate quotation exists if provided
-    if (value.quotationId) {
-      const Quotation = require('../models/Quotation'); // Import Quotation model
-      const quotationExists = await Quotation.findOne({
-        _id: value.quotationId,
-        deleted: false,
-      });
-
-      if (!quotationExists) {
-        return res.status(400).json({
-          error: {
-            code: 'INVALID_QUOTATION',
-            message: 'Quotation not found or has been deleted',
-          },
-        });
-      }
-    }
-
-    // Date validation
-    if (
-      value.startDate &&
-      value.endDate &&
-      new Date(value.endDate) <= new Date(value.startDate)
-    )
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'endDate must be after startDate',
-        },
-      });
-
-    const contract = await Contract.findByIdAndUpdate(req.params.id, value, {
-      new: true,
-    })
-      .populate('clientId', 'business.name personal.fullName personal.email') // Selective population
-      .populate('createdBy', 'fullName email')
-      .populate('terms.term')
-      .populate({
-        path: 'quotationId',
-        populate: {
-          path: 'packages',
-          populate: {
-            path: 'items',
-          },
-        },
-      });
-    if (!contract)
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: 'Contract not found' },
-      });
-
-    await logAudit({
-      userId: req.user._id,
-      action: 'update',
-      entityType: 'Contract',
-      entityId: contract._id,
-      changes: value,
-      ipAddress: req.ip,
-      userAgent: req.get('User-Agent'),
-    });
 
     res.json({ data: contract });
   } catch (err) {
